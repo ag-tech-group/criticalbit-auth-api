@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/api_template"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/criticalbit_auth"
 
     # Auth
     secret_key: str = "change-me-in-production"
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # OpenTelemetry
     otel_enabled: bool = False
-    otel_service_name: str = "api-template"
+    otel_service_name: str = "criticalbit-auth-api"
     otel_exporter_endpoint: str = "http://localhost:4317"
 
     @property
@@ -50,6 +50,13 @@ class Settings(BaseSettings):
         if self.is_development:
             return [f"http://localhost:{p}" for p in range(5100, 5200)]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        """In production, allow all *.criticalbit.gg subdomains."""
+        if self.is_development:
+            return None
+        return r"https://([a-z0-9-]+\.)?criticalbit\.gg"
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":

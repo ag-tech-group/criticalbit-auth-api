@@ -4,7 +4,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/api_template
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/criticalbit_auth
       - SECRET_KEY=dev-secret-key-change-in-production
       - ENVIRONMENT=development
     depends_on:
@@ -18,7 +18,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=api_template
+      - POSTGRES_DB=criticalbit_auth
     ports:
       - "5432:5432"
     volumes:
