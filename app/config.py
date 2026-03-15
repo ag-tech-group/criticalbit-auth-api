@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     # Auth
     secret_key: str = "change-me-in-production"
 
+    # RSA key for JWT signing (RS256). PEM format.
+    # In development, auto-generated if not set.
+    # In production, MUST be set. Generate with:
+    #   openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt
+    rsa_private_key_pem: str = ""
+
+    # Google OAuth
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     # Environment
     environment: str = "development"
 
@@ -68,6 +78,8 @@ class Settings(BaseSettings):
                 )
             if "postgres:postgres@" in self.database_url:
                 raise ValueError("Default database credentials must not be used in production")
+            if not self.rsa_private_key_pem:
+                raise ValueError("RSA_PRIVATE_KEY_PEM must be set in production")
         return self
 
 
