@@ -13,6 +13,7 @@ from app.auth.refresh import create_refresh_token, set_refresh_cookie
 from app.auth.security_logging import SecurityEvent, log_security_event
 from app.config import settings
 from app.database import async_session_maker, get_async_session
+from app.email import send_reset_password_email
 from app.models.oauth_account import OAuthAccount
 from app.models.user import User
 
@@ -68,7 +69,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
         return user
 
     async def on_after_forgot_password(self, user: User, token: str, request=None):
-        logger.info("Password reset requested for user %s.", user.id)
+        send_reset_password_email(user.email, token)
 
     async def on_after_request_verify(self, user: User, token: str, request=None):
         logger.info("Email verification requested for user %s.", user.id)
