@@ -1,7 +1,7 @@
 [project]
-name = "api-template"
+name = "criticalbit-auth-api"
 version = "0.1.0"
-description = "FastAPI template with async PostgreSQL and JWT auth"
+description = "Shared authentication service for criticalbit.gg — user management, JWT issuance, SSO"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -35,29 +35,6 @@ def upgrade() -> None:
     op.create_index(op.f("ix_user_email"), "user", ["email"], unique=True)
 
     op.create_table(
-        "notes",
-        sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("title", sa.String(length=200), nullable=False),
-        sa.Column("body", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_notes_user_id"), "notes", ["user_id"])
-
-    op.create_table(
         "refresh_tokens",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
@@ -82,7 +59,5 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_refresh_tokens_token_family"), table_name="refresh_tokens")
     op.drop_index(op.f("ix_refresh_tokens_user_id"), table_name="refresh_tokens")
     op.drop_table("refresh_tokens")
-    op.drop_index(op.f("ix_notes_user_id"), table_name="notes")
-    op.drop_table("notes")
     op.drop_index(op.f("ix_user_email"), table_name="user")
     op.drop_table("user")

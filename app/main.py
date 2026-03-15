@@ -16,7 +16,7 @@ from app.config import settings
 from app.features import router as features_router
 from app.logging import setup_logging
 from app.models.user import User
-from app.routers import admin_router, notes_router
+from app.routers import admin_router
 from app.routers.auth_refresh import router as auth_refresh_router
 from app.schemas.user import UserCreate, UserRead
 from app.telemetry import setup_telemetry
@@ -25,17 +25,18 @@ setup_logging()
 logger = structlog.get_logger("app.request")
 
 app = FastAPI(
-    title="API Template",
-    description="FastAPI template with async PostgreSQL and cookie-based JWT auth",
-    version="0.2.0",
+    title="criticalbit Auth API",
+    description="Shared authentication service for criticalbit.gg — user management, JWT issuance, SSO",
+    version="0.1.0",
 )
 
 setup_telemetry(app)
 
-# CORS configuration
+# CORS configuration — in production, allows all *.criticalbit.gg subdomains via regex
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
@@ -64,6 +65,12 @@ app.include_router(
 
 @app.get("/auth/me", response_model=UserRead, tags=["auth"])
 async def get_current_user(user: User = Depends(current_active_user)):
+    return user
+
+
+@app.patch("/auth/me", response_model=UserRead, tags=["auth"])
+async def update_current_user(user: User = Depends(current_active_user)):
+    # Placeholder — will be expanded with profile update logic
     return user
 
 
@@ -136,17 +143,14 @@ async def request_logging_middleware(request: Request, call_next) -> Response:
 
 # API routes
 app.include_router(admin_router)
-app.include_router(notes_router)
 app.include_router(features_router)
 
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"status": "ok", "message": "API Template"}
+    return {"status": "ok", "service": "criticalbit-auth-api"}
 
 
 @app.get("/health")
 async def health_check():
-    """Detailed health check."""
     return {"status": "healthy"}
