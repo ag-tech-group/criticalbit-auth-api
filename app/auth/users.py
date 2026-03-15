@@ -13,6 +13,7 @@ from app.auth.refresh import create_refresh_token, set_refresh_cookie
 from app.auth.security_logging import SecurityEvent, log_security_event
 from app.config import settings
 from app.database import async_session_maker, get_async_session
+from app.models.oauth_account import OAuthAccount
 from app.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -21,7 +22,7 @@ logger = structlog.get_logger(__name__)
 async def get_user_db(
     session: AsyncSession = Depends(get_async_session),
 ) -> AsyncGenerator[SQLAlchemyUserDatabase, None]:
-    yield SQLAlchemyUserDatabase(session, User)
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):

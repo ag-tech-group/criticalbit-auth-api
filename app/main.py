@@ -5,12 +5,14 @@ import structlog
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from httpx_oauth.clients.google import GoogleOAuth2
 from limits import RateLimitItem, parse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.auth import auth_backend, current_active_user, fastapi_users
+from app.auth.keys import get_jwks
 from app.auth.security_logging import SecurityEvent, log_security_event
 from app.config import settings
 from app.features import router as features_router
@@ -60,7 +62,37 @@ app.include_router(
     prefix="/auth",
     tags=["auth"],
 )
+# --- Google OAuth ---
+if settings.google_client_id and settings.google_client_secret:
+    google_oauth_client = GoogleOAuth2(settings.google_client_id, settings.google_client_secret)
+    app.include_router(
+        fastapi_users.get_oauth_router(
+            google_oauth_client,
+            auth_backend,
+            settings.secret_key,
+            redirect_url=f"{settings.frontend_url}/callback/google",
+            associate_by_email=True,
+        ),
+        prefix="/auth/google",
+        tags=["auth"],
+    )
+    app.include_router(
+        fastapi_users.get_oauth_associate_router(
+            google_oauth_client,
+            UserRead,
+            settings.secret_key,
+            redirect_url=f"{settings.frontend_url}/callback/google",
+        ),
+        prefix="/auth/google/associate",
+        tags=["auth"],
+    )
 # --- End auth routes ---
+
+
+@app.get("/auth/jwks", tags=["auth"])
+async def jwks():
+    """Public JWKS endpoint. Tool backends use this to verify JWTs."""
+    return get_jwks()
 
 
 @app.get("/auth/me", response_model=UserRead, tags=["auth"])

@@ -6,6 +6,7 @@ from fastapi_users.jwt import decode_jwt, generate_jwt
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.keys import private_key_pem, public_key_pem
 from app.config import settings
 from app.models.refresh_token import RefreshToken
 
@@ -41,8 +42,9 @@ async def create_refresh_token(
     }
     return generate_jwt(
         jwt_data,
-        secret=settings.secret_key,
+        secret=private_key_pem,
         lifetime_seconds=int(REFRESH_TOKEN_LIFETIME.total_seconds()),
+        algorithm="RS256",
     )
 
 
@@ -53,8 +55,9 @@ async def validate_and_rotate_refresh_token(
     try:
         payload = decode_jwt(
             token_jwt,
-            secret=settings.secret_key,
+            secret=public_key_pem,
             audience=REFRESH_AUDIENCE,
+            algorithms=["RS256"],
         )
     except Exception:
         return None
