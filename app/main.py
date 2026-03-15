@@ -72,6 +72,7 @@ if settings.google_client_id and settings.google_client_secret:
             settings.secret_key,
             redirect_url=f"{settings.frontend_url}/callback/google",
             associate_by_email=True,
+            csrf_token_cookie_secure=not settings.is_development,
         ),
         prefix="/auth/google",
         tags=["auth"],
