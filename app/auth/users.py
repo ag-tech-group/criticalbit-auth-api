@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from uuid import UUID
 
 import httpx
+import sqlalchemy as sa
 import structlog
 from fastapi import Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
@@ -76,40 +77,40 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
     async def _populate_avatar(self, user: User) -> None:
         """Try to fetch avatar URL from the user's OAuth providers."""
         try:
+            avatar = None
             for account in user.oauth_accounts:
                 if account.oauth_name == "google" and account.access_token:
                     avatar = await self._get_google_avatar(account.access_token)
                     if avatar:
-                        user.avatar_url = avatar
                         break
                 elif account.oauth_name == "steam":
                     avatar = await self._get_steam_avatar(account.account_id)
                     if avatar:
-                        user.avatar_url = avatar
                         break
-            if user.avatar_url:
+            if avatar:
                 async with async_session_maker() as session:
-                    session.add(user)
-                    await session.merge(user)
+                    await session.execute(
+                        sa.update(User)
+                        .where(User.id == user.id)
+                        .values(avatar_url=avatar)
+                    )
                     await session.commit()
+                user.avatar_url = avatar
         except Exception:
             logger.exception("avatar.populate_failed", user_id=str(user.id))
 
     @staticmethod
     async def _get_google_avatar(access_token: str) -> str | None:
-        """Fetch avatar URL from Google People API."""
+        """Fetch avatar URL from Google userinfo endpoint."""
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
-                    "https://people.googleapis.com/v1/people/me",
-                    params={"personFields": "photos"},
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
             if resp.status_code != 200:
                 return None
-            photos = resp.json().get("photos", [])
-            if photos:
-                return photos[0].get("url")
+            return resp.json().get("picture")
         except Exception:
             pass
         return None

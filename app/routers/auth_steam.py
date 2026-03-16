@@ -79,7 +79,7 @@ async def steam_callback(
     display_name = profile.get("personaname", f"Steam User {steam_id}")
     avatar_url = profile.get("avatarfull")
 
-    # Find or create user
+    # Find or create user, update avatar/name on every login
     user = await _find_or_create_user(session, steam_id, display_name, avatar_url)
 
     # Log the login
@@ -172,9 +172,13 @@ async def _find_or_create_user(
     oauth_account = result.scalar_one_or_none()
 
     if oauth_account:
-        # Existing linked account — fetch the user
+        # Existing linked account — fetch and update profile
         user_result = await session.execute(select(User).where(User.id == oauth_account.user_id))
         user = user_result.unique().scalar_one()
+        user.display_name = display_name
+        if avatar_url:
+            user.avatar_url = avatar_url
+        await session.commit()
         return user
 
     # Create a new user with a placeholder email (Steam doesn't provide emails)
