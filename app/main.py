@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from limits import RateLimitItem, parse
+from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -145,9 +146,24 @@ async def get_current_user(user: User = Depends(current_active_user)):
     return user
 
 
+class ProfileUpdate(BaseModel):
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+
 @app.patch("/auth/me", response_model=UserRead, tags=["auth"])
-async def update_current_user(user: User = Depends(current_active_user)):
-    # Placeholder — will be expanded with profile update logic
+async def update_current_user(
+    updates: ProfileUpdate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    if updates.display_name is not None:
+        user.display_name = updates.display_name
+    if updates.avatar_url is not None:
+        user.avatar_url = updates.avatar_url
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
     return user
 
 

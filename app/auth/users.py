@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
+import httpx
 import structlog
 from fastapi import Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
@@ -55,6 +56,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
                 refresh_jwt = await create_refresh_token(str(user.id), session)
                 set_refresh_cookie(response, refresh_jwt)
 
+        # Populate avatar from OAuth provider if not set
+        if not user.avatar_url and user.oauth_accounts:
+            await self._populate_avatar(user)
+
     async def authenticate(
         self,
         credentials: OAuth2PasswordRequestForm,
@@ -67,6 +72,67 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
                 detail="invalid credentials",
             )
         return user
+
+    async def _populate_avatar(self, user: User) -> None:
+        """Try to fetch avatar URL from the user's OAuth providers."""
+        try:
+            for account in user.oauth_accounts:
+                if account.oauth_name == "google" and account.access_token:
+                    avatar = await self._get_google_avatar(account.access_token)
+                    if avatar:
+                        user.avatar_url = avatar
+                        break
+                elif account.oauth_name == "steam":
+                    avatar = await self._get_steam_avatar(account.account_id)
+                    if avatar:
+                        user.avatar_url = avatar
+                        break
+            if user.avatar_url:
+                async with async_session_maker() as session:
+                    session.add(user)
+                    await session.merge(user)
+                    await session.commit()
+        except Exception:
+            logger.exception("avatar.populate_failed", user_id=str(user.id))
+
+    @staticmethod
+    async def _get_google_avatar(access_token: str) -> str | None:
+        """Fetch avatar URL from Google People API."""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://people.googleapis.com/v1/people/me",
+                    params={"personFields": "photos"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            if resp.status_code != 200:
+                return None
+            photos = resp.json().get("photos", [])
+            if photos:
+                return photos[0].get("url")
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    async def _get_steam_avatar(steam_id: str) -> str | None:
+        """Fetch avatar URL from Steam Web API."""
+        if not settings.steam_api_key:
+            return None
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/",
+                    params={"key": settings.steam_api_key, "steamids": steam_id},
+                )
+            if resp.status_code != 200:
+                return None
+            players = resp.json().get("response", {}).get("players", [])
+            if players:
+                return players[0].get("avatarfull")
+        except Exception:
+            pass
+        return None
 
     async def on_after_forgot_password(self, user: User, token: str, request=None):
         send_reset_password_email(user.email, token)

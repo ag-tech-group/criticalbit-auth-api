@@ -7,6 +7,8 @@ class UserRead(schemas.BaseUser[UUID]):
     """Schema for reading user data."""
 
     role: str = "user"
+    display_name: str | None = None
+    avatar_url: str | None = None
 
 
 class UserCreate(schemas.BaseUserCreate):
