@@ -109,7 +109,10 @@ if settings.google_client_id and settings.google_client_secret:
                 return await call_next(request)
             response = await call_next(request)
             if response.status_code == 204:
-                redirect = RedirectResponse(url=f"{settings.frontend_url}/profile", status_code=302)
+                redirect = RedirectResponse(
+                    url=f"{settings.frontend_url}/callback/google-complete",
+                    status_code=302,
+                )
                 # Copy the Set-Cookie headers from the OAuth response
                 for header_name, header_value in response.headers.items():
                     if header_name.lower() == "set-cookie":

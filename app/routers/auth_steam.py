@@ -94,7 +94,9 @@ async def steam_callback(
     # Set access token cookie
     strategy = get_jwt_strategy()
     access_token = await strategy.write_token(user)
-    response = RedirectResponse(url=f"{settings.frontend_url}/profile", status_code=302)
+    # Redirect to the frontend's complete page so it can handle
+    # localStorage-based redirect (e.g., back to hub after login)
+    response = RedirectResponse(url=f"{settings.frontend_url}/callback/steam-complete", status_code=302)
     response.set_cookie(
         key="app_access",
         value=access_token,
