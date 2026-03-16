@@ -4,7 +4,7 @@ import uuid
 import structlog
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from limits import RateLimitItem, parse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -68,26 +68,57 @@ app.include_router(
     tags=["auth"],
 )
 # --- Google OAuth ---
+# In production, Google redirects to the API's callback directly (not the frontend).
+# The API processes the OAuth exchange, sets cookies, then redirects the browser to the frontend.
+# This avoids cross-origin cookie issues between auth.criticalbit.gg and auth-api.criticalbit.gg.
 if settings.google_client_id and settings.google_client_secret:
     google_oauth_client = GoogleOAuth2(settings.google_client_id, settings.google_client_secret)
+
+    # Use fastapi-users' OAuth router but override the redirect_url to point to our own callback
+    _oauth_redirect_url = (
+        f"{settings.frontend_url}/callback/google"
+        if settings.is_development
+        else None  # Use auto-detected callback URL in production
+    )
     app.include_router(
         fastapi_users.get_oauth_router(
             google_oauth_client,
             auth_backend,
             settings.secret_key,
-            redirect_url=f"{settings.frontend_url}/callback/google",
+            redirect_url=_oauth_redirect_url,
             associate_by_email=True,
             csrf_token_cookie_secure=not settings.is_development,
         ),
         prefix="/auth/google",
         tags=["auth"],
     )
+
+    # In production, after the OAuth callback sets cookies (204), we need to redirect
+    # the browser to the frontend. Wrap the callback response.
+    if not settings.is_development:
+        _original_routes = {r.path: r for r in app.routes}
+
+        @app.middleware("http")
+        async def oauth_callback_redirect(request: Request, call_next) -> Response:
+            """Redirect to frontend after successful OAuth callback."""
+            if request.url.path != "/auth/google/callback":
+                return await call_next(request)
+            response = await call_next(request)
+            if response.status_code == 204:
+                redirect = RedirectResponse(url=f"{settings.frontend_url}/profile", status_code=302)
+                # Copy the Set-Cookie headers from the OAuth response
+                for header_name, header_value in response.headers.items():
+                    if header_name.lower() == "set-cookie":
+                        redirect.headers.append(header_name, header_value)
+                return redirect
+            return response
+
     app.include_router(
         fastapi_users.get_oauth_associate_router(
             google_oauth_client,
             UserRead,
             settings.secret_key,
-            redirect_url=f"{settings.frontend_url}/callback/google",
+            redirect_url=_oauth_redirect_url,
         ),
         prefix="/auth/google/associate",
         tags=["auth"],
