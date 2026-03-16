@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
 
+    # Steam OpenID
+    steam_api_key: str = ""
+
     # Email (Resend)
     resend_api_key: str = ""
     email_from: str = "noreply@auth.criticalbit.gg"
