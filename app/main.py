@@ -62,6 +62,11 @@ app.include_router(
     prefix="/auth",
     tags=["auth"],
 )
+app.include_router(
+    fastapi_users.get_reset_password_router(),
+    prefix="/auth",
+    tags=["auth"],
+)
 # --- Google OAuth ---
 if settings.google_client_id and settings.google_client_secret:
     google_oauth_client = GoogleOAuth2(settings.google_client_id, settings.google_client_secret)
