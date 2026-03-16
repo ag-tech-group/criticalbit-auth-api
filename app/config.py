@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Frontend URL (for OAuth redirect after callback, etc.)
     frontend_url: str = "http://localhost:5173"
 
+    # API public URL (for OAuth callback redirect_uri in production)
+    api_url: str = "http://localhost:8000"
+
     # Cookie auth
     cookie_domain: str | None = None
 

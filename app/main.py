@@ -74,11 +74,12 @@ app.include_router(
 if settings.google_client_id and settings.google_client_secret:
     google_oauth_client = GoogleOAuth2(settings.google_client_id, settings.google_client_secret)
 
-    # Use fastapi-users' OAuth router but override the redirect_url to point to our own callback
+    # In dev: Google redirects to the frontend, which forwards to the API via Vite proxy.
+    # In prod: Google redirects to the API directly, which sets cookies and redirects to frontend.
     _oauth_redirect_url = (
         f"{settings.frontend_url}/callback/google"
         if settings.is_development
-        else None  # Use auto-detected callback URL in production
+        else f"{settings.api_url}/auth/google/callback"
     )
     app.include_router(
         fastapi_users.get_oauth_router(
