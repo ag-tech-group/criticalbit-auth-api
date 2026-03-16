@@ -13,6 +13,7 @@ class SecurityEvent(StrEnum):
     REGISTER = "REGISTER"
     TOKEN_REFRESH = "TOKEN_REFRESH"
     RATE_LIMIT_HIT = "RATE_LIMIT_HIT"
+    ACCOUNT_DELETED = "ACCOUNT_DELETED"
 
 
 def log_security_event(

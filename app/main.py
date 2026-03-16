@@ -10,11 +10,13 @@ from limits import RateLimitItem, parse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import auth_backend, current_active_user, fastapi_users
 from app.auth.keys import get_jwks
 from app.auth.security_logging import SecurityEvent, log_security_event
 from app.config import settings
+from app.database import get_async_session
 from app.features import router as features_router
 from app.logging import setup_logging
 from app.models.user import User
@@ -147,6 +149,21 @@ async def get_current_user(user: User = Depends(current_active_user)):
 async def update_current_user(user: User = Depends(current_active_user)):
     # Placeholder — will be expanded with profile update logic
     return user
+
+
+@app.delete("/auth/me", status_code=204, tags=["auth"])
+async def delete_current_user(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Delete the current user's account and all associated data."""
+    log_security_event(
+        SecurityEvent.ACCOUNT_DELETED,
+        user_id=str(user.id),
+        email=user.email,
+    )
+    await session.delete(user)
+    await session.commit()
 
 
 # Path-specific rate limits for auth endpoints
