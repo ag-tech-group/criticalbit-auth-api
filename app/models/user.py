@@ -20,6 +20,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     role: Mapped[str] = mapped_column(
         String(50), default="user", server_default="user", nullable=False
     )
+    display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
         "OAuthAccount", lazy="joined"

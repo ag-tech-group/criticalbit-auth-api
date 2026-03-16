@@ -77,9 +77,10 @@ async def steam_callback(
     # Fetch Steam profile
     profile = await _get_steam_profile(steam_id)
     display_name = profile.get("personaname", f"Steam User {steam_id}")
+    avatar_url = profile.get("avatarfull")
 
     # Find or create user
-    user = await _find_or_create_user(session, steam_id, display_name)
+    user = await _find_or_create_user(session, steam_id, display_name, avatar_url)
 
     # Log the login
     log_security_event(
@@ -158,6 +159,7 @@ async def _find_or_create_user(
     session: AsyncSession,
     steam_id: str,
     display_name: str,
+    avatar_url: str | None = None,
 ) -> User:
     """Find an existing user linked to this Steam ID, or create a new one."""
     # Check if this Steam ID is already linked
@@ -184,6 +186,8 @@ async def _find_or_create_user(
         hashed_password="!steam-oauth-no-password",
         is_active=True,
         is_verified=False,
+        display_name=display_name,
+        avatar_url=avatar_url,
     )
     session.add(user)
     await session.flush()
