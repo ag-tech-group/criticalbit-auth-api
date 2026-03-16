@@ -124,6 +124,11 @@ if settings.google_client_id and settings.google_client_secret:
         prefix="/auth/google/associate",
         tags=["auth"],
     )
+# --- Steam OpenID ---
+if settings.steam_api_key:
+    from app.routers.auth_steam import router as steam_router
+
+    app.include_router(steam_router)
 # --- End auth routes ---
 
 
