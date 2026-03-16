@@ -172,7 +172,7 @@ async def _find_or_create_user(
     if oauth_account:
         # Existing linked account — fetch the user
         user_result = await session.execute(select(User).where(User.id == oauth_account.user_id))
-        user = user_result.scalar_one()
+        user = user_result.unique().scalar_one()
         return user
 
     # Create a new user with a placeholder email (Steam doesn't provide emails)
