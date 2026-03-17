@@ -1,5 +1,7 @@
+from datetime import datetime
+
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -22,6 +24,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     )
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    tos_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tos_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
         "OAuthAccount", lazy="joined"
