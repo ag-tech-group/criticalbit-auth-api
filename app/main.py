@@ -170,6 +170,25 @@ async def update_current_user(
     return user
 
 
+CURRENT_TOS_VERSION = "2026-03-16"
+
+
+@app.post("/auth/accept-tos", response_model=UserRead, tags=["auth"])
+async def accept_tos(
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Record the user's acceptance of the current Terms of Service."""
+    from datetime import UTC, datetime
+
+    user.tos_accepted_at = datetime.now(UTC)
+    user.tos_version = CURRENT_TOS_VERSION
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
 @app.delete("/auth/me", status_code=204, tags=["auth"])
 async def delete_current_user(
     user: User = Depends(current_active_user),

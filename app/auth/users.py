@@ -90,9 +90,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
             if avatar:
                 async with async_session_maker() as session:
                     await session.execute(
-                        sa.update(User)
-                        .where(User.id == user.id)
-                        .values(avatar_url=avatar)
+                        sa.update(User).where(User.id == user.id).values(avatar_url=avatar)
                     )
                     await session.commit()
                 user.avatar_url = avatar
