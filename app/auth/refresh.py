@@ -1,8 +1,9 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from fastapi import Response
-from fastapi_users.jwt import decode_jwt, generate_jwt
+from fastapi_users.jwt import generate_jwt
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +40,7 @@ async def create_refresh_token(
         "jti": str(token_id),
         "family": token_family,
         "aud": REFRESH_AUDIENCE,
+        "iss": settings.jwt_issuer,
     }
     return generate_jwt(
         jwt_data,
@@ -53,11 +55,12 @@ async def validate_and_rotate_refresh_token(
     session: AsyncSession,
 ) -> tuple[str, str] | None:
     try:
-        payload = decode_jwt(
+        payload = jwt.decode(
             token_jwt,
-            secret=public_key_pem,
+            public_key_pem,
             audience=REFRESH_AUDIENCE,
             algorithms=["RS256"],
+            issuer=settings.jwt_issuer,
         )
     except Exception:
         return None
@@ -98,10 +101,10 @@ async def validate_and_rotate_refresh_token(
     return (user_id, new_jwt)
 
 
-def set_refresh_cookie(response: Response, jwt: str) -> None:
+def set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=REFRESH_COOKIE_NAME,
-        value=jwt,
+        value=token,
         max_age=int(REFRESH_TOKEN_LIFETIME.total_seconds()),
         path="/auth/refresh",
         domain=settings.cookie_domain,
