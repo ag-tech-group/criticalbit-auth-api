@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Cookie auth
     cookie_domain: str | None = None
 
+    # JWT issuer — defaults to api_url
+    token_issuer: str = ""
+
     # Logging
     log_level: str = "INFO"
 
@@ -56,6 +59,10 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_service_name: str = "criticalbit-auth-api"
     otel_exporter_endpoint: str = "http://localhost:4317"
+
+    @property
+    def jwt_issuer(self) -> str:
+        return self.token_issuer or self.api_url
 
     @property
     def is_development(self) -> bool:
