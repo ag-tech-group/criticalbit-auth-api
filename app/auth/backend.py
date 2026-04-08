@@ -17,9 +17,8 @@ class IssuingJWTStrategy(JWTStrategy):
             "aud": self.token_audience,
             "iss": settings.jwt_issuer,
         }
-        return generate_jwt(
-            data, self.encode_key, self.lifetime_seconds, algorithm=self.algorithm
-        )
+        return generate_jwt(data, self.encode_key, self.lifetime_seconds, algorithm=self.algorithm)
+
 
 cookie_transport = CookieTransport(
     cookie_name="app_access",
