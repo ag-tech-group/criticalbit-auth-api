@@ -21,7 +21,7 @@ from app.database import get_async_session
 from app.features import router as features_router
 from app.logging import setup_logging
 from app.models.user import User
-from app.routers import admin_router
+from app.routers import admin_router, user_consent_router
 from app.routers.auth_refresh import router as auth_refresh_router
 from app.schemas.user import UserCreate, UserRead
 from app.telemetry import setup_telemetry
@@ -273,6 +273,7 @@ async def request_logging_middleware(request: Request, call_next) -> Response:
 
 # API routes
 app.include_router(admin_router)
+app.include_router(user_consent_router)
 app.include_router(features_router)
 
 
