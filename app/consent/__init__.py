@@ -1,0 +1,3 @@
+from app.consent.constants import CONSENT_TYPES, CURRENT_POLICY_VERSION
+
+__all__ = ["CONSENT_TYPES", "CURRENT_POLICY_VERSION"]
