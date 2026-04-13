@@ -12,6 +12,7 @@ env:
   GCP_PROJECT: criticalbit-production
   GCP_REGION: us-east1
   SERVICE_NAME: criticalbit-auth-api
+  MIGRATE_JOB_NAME: criticalbit-auth-api-migrate
   IMAGE: us-east1-docker.pkg.dev/criticalbit-production/criticalbit-auth-api/criticalbit-auth-api
 
 jobs:
@@ -42,6 +43,21 @@ jobs:
           docker build -t ${{ env.IMAGE }}:${{ github.sha }} -t ${{ env.IMAGE }}:latest .
           docker push ${{ env.IMAGE }}:${{ github.sha }}
           docker push ${{ env.IMAGE }}:latest
+
+      # Run migrations before swapping the service. --wait propagates the
+      # job's non-zero exit status to this step, which fails the workflow
+      # on migration errors and leaves the current service version
+      # running. The service update step below never fires in that case.
+      - name: Run database migrations
+        run: |
+          gcloud run jobs update ${{ env.MIGRATE_JOB_NAME }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --project ${{ env.GCP_PROJECT }}
+          gcloud run jobs execute ${{ env.MIGRATE_JOB_NAME }} \
+            --region ${{ env.GCP_REGION }} \
+            --project ${{ env.GCP_PROJECT }} \
+            --wait
 
       - name: Deploy to Cloud Run
         run: |
