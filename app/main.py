@@ -46,7 +46,7 @@ app.add_middleware(
     allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "sentry-trace", "baggage"],
 )
 
 # Rate limiting
