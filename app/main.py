@@ -24,8 +24,10 @@ from app.models.user import User
 from app.routers import admin_router, user_consent_router
 from app.routers.auth_refresh import router as auth_refresh_router
 from app.schemas.user import UserCreate, UserRead
+from app.sentry import init_sentry
 from app.telemetry import setup_telemetry
 
+init_sentry()
 setup_logging()
 logger = structlog.get_logger("app.request")
 
