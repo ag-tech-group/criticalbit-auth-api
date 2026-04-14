@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     otel_service_name: str = "criticalbit-auth-api"
     otel_exporter_endpoint: str = "http://localhost:4317"
 
+    # Sentry
+    sentry_dsn: str = ""
+    sentry_release: str = ""
+
     @property
     def jwt_issuer(self) -> str:
         return self.token_issuer or self.api_url
@@ -67,6 +71,10 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.environment == "development"
+
+    @property
+    def sentry_traces_sample_rate(self) -> float:
+        return 1.0 if self.is_development else 0.1
 
     @property
     def cookie_samesite(self) -> str:
