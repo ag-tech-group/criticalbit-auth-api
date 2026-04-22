@@ -248,9 +248,7 @@ async def test_logout_revokes_refresh_token_family_in_db(api: AsyncClient) -> No
     async with _session_maker() as sess:
         tokens = (await sess.execute(select(RefreshToken))).scalars().all()
         assert len(tokens) >= 1
-        assert all(t.is_revoked for t in tokens), [
-            (str(t.id), t.is_revoked) for t in tokens
-        ]
+        assert all(t.is_revoked for t in tokens), [(str(t.id), t.is_revoked) for t in tokens]
 
 
 async def test_logout_with_invalid_refresh_token_does_not_crash(api: AsyncClient) -> None:
@@ -384,9 +382,12 @@ def test_oauth_csrf_cookie_subprocess() -> None:
         """
     )
 
+    import pathlib
+
+    repo_root = pathlib.Path(__file__).resolve().parent.parent
     result = subprocess.run(
         [sys.executable, "-c", script],
-        cwd="/home/amrtg/apps/criticalbit/criticalbit-auth-api",
+        cwd=str(repo_root),
         capture_output=True,
         text=True,
         timeout=60,
@@ -396,9 +397,7 @@ def test_oauth_csrf_cookie_subprocess() -> None:
     import json
 
     marker = "OAUTH_SUBPROC_RESULT "
-    line = next(
-        (ln for ln in result.stdout.splitlines() if ln.startswith(marker)), None
-    )
+    line = next((ln for ln in result.stdout.splitlines() if ln.startswith(marker)), None)
     assert line is not None, f"marker not found in subprocess output:\n{result.stdout}"
     payload = json.loads(line[len(marker) :])
 
