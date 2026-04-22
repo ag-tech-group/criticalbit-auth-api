@@ -71,8 +71,8 @@ Starts the API on `:8000`, PostgreSQL on `:5432`, and Adminer on `:8080`.
 
 Authentication uses httpOnly cookies with short-lived access tokens and rotating refresh tokens.
 
-- **Access token**: 15-minute JWT in `app_access` httpOnly cookie
-- **Refresh token**: 7-day JWT in `app_refresh` httpOnly cookie (scoped to `/auth/refresh`)
+- **Access token**: 15-minute JWT in `criticalbit_access` httpOnly cookie
+- **Refresh token**: 7-day JWT in `criticalbit_refresh` httpOnly cookie (scoped to `/auth/refresh`)
 - **Token rotation**: Each refresh issues a new token in the same family; reuse of an old token revokes the entire family (theft detection)
 - **Cookie domain**: `.criticalbit.gg` in production (SSO across all subdomains)
 - **Rate limiting**: Login (5/min), registration (3/min), refresh (30/min)

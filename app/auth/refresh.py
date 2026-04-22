@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 from fastapi import Response
@@ -12,7 +13,7 @@ from app.config import settings
 from app.models.refresh_token import RefreshToken
 
 REFRESH_TOKEN_LIFETIME = timedelta(days=7)
-REFRESH_COOKIE_NAME = "app_refresh"
+REFRESH_COOKIE_NAME = "criticalbit_refresh"
 REFRESH_AUDIENCE = ["app:refresh"]
 
 
@@ -50,19 +51,30 @@ async def create_refresh_token(
     )
 
 
-async def validate_and_rotate_refresh_token(
-    token_jwt: str,
-    session: AsyncSession,
-) -> tuple[str, str] | None:
+def decode_refresh_token(token: str) -> dict[str, Any] | None:
+    """Decode a refresh token JWT, or return None if invalid/expired.
+
+    Refresh tokens are RS256-signed with the RSA keypair; fastapi-users'
+    ``decode_jwt`` defaults to HS256 and cannot verify them.
+    """
     try:
-        payload = jwt.decode(
-            token_jwt,
+        return jwt.decode(
+            token,
             public_key_pem,
             audience=REFRESH_AUDIENCE,
             algorithms=["RS256"],
             issuer=settings.jwt_issuer,
         )
     except Exception:
+        return None
+
+
+async def validate_and_rotate_refresh_token(
+    token_jwt: str,
+    session: AsyncSession,
+) -> tuple[str, str] | None:
+    payload = decode_refresh_token(token_jwt)
+    if payload is None:
         return None
 
     jti = payload.get("jti")
