@@ -100,7 +100,7 @@ async def steam_callback(
         url=f"{settings.frontend_url}/callback/steam-complete", status_code=302
     )
     response.set_cookie(
-        key="app_access",
+        key="criticalbit_access",
         value=access_token,
         max_age=900,
         path="/",

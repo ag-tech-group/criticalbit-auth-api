@@ -21,7 +21,7 @@ class IssuingJWTStrategy(JWTStrategy):
 
 
 cookie_transport = CookieTransport(
-    cookie_name="app_access",
+    cookie_name="criticalbit_access",
     cookie_max_age=ACCESS_TOKEN_LIFETIME,
     cookie_path="/",
     cookie_domain=settings.cookie_domain,
