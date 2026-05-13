@@ -15,24 +15,42 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 ## Features
 
 - Email/password registration and login
-- JWT access tokens (15 min) via httpOnly cookies scoped to `.criticalbit.gg`
+- Google OAuth and Steam OpenID sign-in; link either provider to an existing account
+- Password reset via email (Resend)
+- RS256-signed JWT access tokens (15 min) in httpOnly cookies scoped to `.criticalbit.gg`, with a public JWKS endpoint so other services can verify them
 - Refresh token rotation with family-based theft detection
 - Role-based authorization (user, admin)
+- Terms-of-service acceptance gate and per-purpose consent tracking (`analytics`, `session_replay`)
 - CORS support for all `*.criticalbit.gg` subdomains
 - Rate limiting on auth endpoints
-- Structured logging and optional OpenTelemetry tracing
+- Error tracking (Sentry), structured logging, and optional OpenTelemetry tracing
+- Runtime feature flags via `FEATURE_*` environment variables
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/auth/register` | Create a new user account |
-| POST | `/auth/jwt/login` | Login, receive JWT cookies |
-| POST | `/auth/jwt/logout` | Logout, revoke tokens |
-| POST | `/auth/refresh` | Rotate refresh token |
-| GET | `/auth/me` | Get current user profile |
-| PATCH | `/auth/me` | Update current user profile |
-| PATCH | `/admin/users/{id}/role` | Update a user's role (admin only) |
+| POST | `/auth/jwt/login` | Log in; sets the access + refresh cookies |
+| POST | `/auth/jwt/logout` | Log out; revokes the refresh-token family |
+| POST | `/auth/refresh` | Rotate the refresh token, mint a new access token |
+| POST | `/auth/forgot-password` | Send a password-reset email |
+| POST | `/auth/reset-password` | Set a new password using the emailed token |
+| GET | `/auth/google/authorize` | Begin Google OAuth login (redirects to Google) |
+| GET | `/auth/google/callback` | Google OAuth callback |
+| GET | `/auth/google/associate/authorize` | Link a Google account to the signed-in user |
+| GET | `/auth/google/associate/callback` | Google account-link callback |
+| GET | `/auth/steam/authorize` | Begin Steam OpenID login |
+| GET | `/auth/steam/callback` | Steam OpenID callback |
+| GET | `/auth/me` | Get the current user's profile |
+| PATCH | `/auth/me` | Update the current user's profile |
+| DELETE | `/auth/me` | Delete the current user's account |
+| POST | `/auth/accept-tos` | Accept the current Terms of Service version |
+| GET | `/auth/jwks` | Public JWKS for verifying issued access tokens |
+| GET | `/user/consents` | Get the current user's consent decisions |
+| POST | `/user/consents` | Record or update the current user's consent decisions |
+| GET | `/flags` | Resolved feature flags |
+| PATCH | `/admin/users/{id}/role` | Change a user's role (admin only) |
 | GET | `/health` | Health check |
 
 ## Development
@@ -71,24 +89,35 @@ Starts the API on `:8000`, PostgreSQL on `:5432`, and Adminer on `:8080`.
 
 Authentication uses httpOnly cookies with short-lived access tokens and rotating refresh tokens.
 
-- **Access token**: 15-minute JWT in `criticalbit_access` httpOnly cookie
-- **Refresh token**: 7-day JWT in `criticalbit_refresh` httpOnly cookie (scoped to `/auth/refresh`)
-- **Token rotation**: Each refresh issues a new token in the same family; reuse of an old token revokes the entire family (theft detection)
-- **Cookie domain**: `.criticalbit.gg` in production (SSO across all subdomains)
-- **Rate limiting**: Login (5/min), registration (3/min), refresh (30/min)
+- **Access token**: 15-minute RS256 JWT in the `criticalbit_access` httpOnly cookie (path `/`). Other platform services verify it against `GET /auth/jwks`; the `iss` claim defaults to `API_URL` (override with `TOKEN_ISSUER`).
+- **Refresh token**: 7-day JWT in the `criticalbit_refresh` httpOnly cookie, path-scoped to `/auth/refresh`
+- **Token rotation**: each refresh issues a new token in the same family; reuse of an old token revokes the entire family (theft detection)
+- **Cookie domain**: `.criticalbit.gg` in production (SSO across all subdomains); unset for localhost
+- **Rate limiting**: login (5/min), registration (3/min), refresh (30/min)
 
 ## Environment Variables
 
+See [`.env.example`](.env.example) for the full list. Key ones:
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...localhost:5432/criticalbit_auth` |
-| `SECRET_KEY` | JWT signing key (min 32 chars in production) | `change-me-in-production` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/criticalbit_auth` |
+| `SECRET_KEY` | Secret for fastapi-users tokens (password reset / verification); ≥32 chars in production | `change-me-in-production` |
+| `RSA_PRIVATE_KEY_PEM` | PKCS#8 PEM RSA private key for signing access/refresh JWTs (RS256). Auto-generated in dev; **required** in production | (auto in dev) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth credentials; empty disables Google sign-in | (empty) |
+| `STEAM_API_KEY` | Steam Web API key; empty disables Steam sign-in | (empty) |
+| `RESEND_API_KEY` | Resend API key; empty logs reset URLs instead of emailing them | (empty) |
+| `EMAIL_FROM` | From-address for outbound email | `noreply@auth.criticalbit.gg` |
 | `ENVIRONMENT` | `development` or `production` | `development` |
-| `CORS_ORIGINS` | Additional allowed origins (comma-separated) | (empty) |
-| `FRONTEND_URL` | Auth frontend URL for redirects | `http://localhost:5173` |
-| `COOKIE_DOMAIN` | Cookie domain (`.criticalbit.gg` in production) | (empty) |
+| `CORS_ORIGINS` | Extra allowed origins, comma-separated (`*.criticalbit.gg` always allowed in production) | (empty) |
+| `API_URL` | Public URL of this API; used for OAuth `redirect_uri` and as the default JWT issuer | `http://localhost:8000` |
+| `TOKEN_ISSUER` | JWT `iss` claim; defaults to `API_URL` | (empty) |
+| `FRONTEND_URL` | Auth frontend URL for post-OAuth redirects | `http://localhost:5173` |
+| `COOKIE_DOMAIN` | Cookie domain (`.criticalbit.gg` in production; empty for localhost) | (empty) |
 | `LOG_LEVEL` | Logging level | `INFO` |
+| `SENTRY_DSN` | Sentry DSN; empty skips Sentry initialization | (empty) |
 | `OTEL_ENABLED` | Enable OpenTelemetry tracing | `false` |
+| `FEATURE_*` | Runtime feature flags, e.g. `FEATURE_NEW_DASHBOARD=true` exposes `new_dashboard` via `GET /flags` | (none) |
 
 ## License
 
