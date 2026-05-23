@@ -159,6 +159,18 @@ class ProfileUpdate(BaseModel):
     avatar_url: str | None = None
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    """Coerce blank / whitespace-only strings to None for optional text fields.
+
+    Stops empty form submissions from overwriting a populated display_name (or
+    avatar_url) with `""`, which downstream consumers tend to render as-is.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 @app.patch("/auth/me", response_model=UserRead, tags=["auth"])
 async def update_current_user(
     updates: ProfileUpdate,
@@ -166,9 +178,9 @@ async def update_current_user(
     session: AsyncSession = Depends(get_async_session),
 ):
     if updates.display_name is not None:
-        user.display_name = updates.display_name
+        user.display_name = _normalize_optional_text(updates.display_name)
     if updates.avatar_url is not None:
-        user.avatar_url = updates.avatar_url
+        user.avatar_url = _normalize_optional_text(updates.avatar_url)
     session.add(user)
     await session.commit()
     await session.refresh(user)
