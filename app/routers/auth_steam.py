@@ -74,10 +74,13 @@ async def steam_callback(
     if not steam_id:
         raise HTTPException(status_code=400, detail="Steam authentication failed")
 
-    # Fetch Steam profile
+    # Fetch Steam profile. If GetPlayerSummaries fails / rate-limits / is
+    # disabled (no api key), leave display_name and avatar_url as None rather
+    # than falling back to the SteamID64 — both frontends already fall back to
+    # email when display_name is null, which is friendlier than a 17-digit id.
     profile = await _get_steam_profile(steam_id)
-    display_name = profile.get("personaname", f"Steam User {steam_id}")
-    avatar_url = profile.get("avatarfull")
+    display_name = _personaname(profile)
+    avatar_url = profile.get("avatarfull") or None
 
     # Find or create user, update avatar/name on every login
     user = await _find_or_create_user(session, steam_id, display_name, avatar_url)
@@ -141,31 +144,70 @@ async def _verify_openid_assertion(params: dict) -> str | None:
 
 
 async def _get_steam_profile(steam_id: str) -> dict:
-    """Fetch a Steam user's profile via the Steam Web API."""
+    """Fetch a Steam user's profile via the Steam Web API.
+
+    Returns an empty dict when the API key is unset, the request fails, the
+    response is malformed, or Steam returns no player. Callers must treat the
+    absence of `personaname` as "unknown" rather than substituting `steam_id`.
+    """
     if not settings.steam_api_key:
         return {}
 
     url = f"{STEAM_API_URL}/ISteamUser/GetPlayerSummaries/v0002/"
     params = {"key": settings.steam_api_key, "steamids": steam_id}
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, params=params)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params)
+    except httpx.HTTPError as e:
+        logger.warning("steam.profile_fetch_error", steam_id=steam_id, error=str(e))
+        return {}
 
     if resp.status_code != 200:
         logger.warning("steam.profile_fetch_failed", steam_id=steam_id, status=resp.status_code)
         return {}
 
-    players = resp.json().get("response", {}).get("players", [])
+    try:
+        players = resp.json().get("response", {}).get("players", [])
+    except ValueError:
+        logger.warning("steam.profile_invalid_json", steam_id=steam_id)
+        return {}
     return players[0] if players else {}
+
+
+def _personaname(profile: dict) -> str | None:
+    """Extract a usable persona name from a Steam profile.
+
+    Returns None when:
+    - the profile is empty (GetPlayerSummaries failed or returned no players),
+    - `personaname` is missing or blank after stripping whitespace,
+    - `personaname` is literally the SteamID64 — some accounts default it that
+      way and surfacing a raw 17-digit number is worse than null, since the UI
+      falls back to email.
+    """
+    raw = profile.get("personaname")
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name:
+        return None
+    if name.isdigit() and len(name) >= 16:
+        return None
+    return name
 
 
 async def _find_or_create_user(
     session: AsyncSession,
     steam_id: str,
-    display_name: str,
+    display_name: str | None,
     avatar_url: str | None = None,
 ) -> User:
-    """Find an existing user linked to this Steam ID, or create a new one."""
+    """Find an existing user linked to this Steam ID, or create a new one.
+
+    On re-login for an existing user, profile fields are only refreshed when
+    Steam returned usable values. A transient GetPlayerSummaries failure must
+    not clobber a previously-good display_name or avatar.
+    """
     # Check if this Steam ID is already linked
     result = await session.execute(
         select(OAuthAccount).where(
@@ -176,10 +218,11 @@ async def _find_or_create_user(
     oauth_account = result.scalar_one_or_none()
 
     if oauth_account:
-        # Existing linked account — fetch and update profile
+        # Existing linked account — refresh profile only when we have new data
         user_result = await session.execute(select(User).where(User.id == oauth_account.user_id))
         user = user_result.unique().scalar_one()
-        user.display_name = display_name
+        if display_name:
+            user.display_name = display_name
         if avatar_url:
             user.avatar_url = avatar_url
         await session.commit()
