@@ -59,9 +59,19 @@ jobs:
             --project ${{ env.GCP_PROJECT }} \
             --wait
 
+      # SENTRY_DSN is bound from Secret Manager (auth-sentry-dsn:latest) and
+      # SENTRY_RELEASE is set to the commit SHA so Sentry can group errors,
+      # transactions, and profiles by deploy. The secret binding survives
+      # `services update --image` automatically, but listing it here makes the
+      # production env contract explicit in version control.
       - name: Deploy to Cloud Run
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          IMAGE_TAG: ${{ env.IMAGE }}:${{ github.sha }}
         run: |
-          gcloud run services update ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
-            --region ${{ env.GCP_REGION }} \
-            --project ${{ env.GCP_PROJECT }}
+          gcloud run services update "${{ env.SERVICE_NAME }}" \
+            --image "$IMAGE_TAG" \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ env.GCP_PROJECT }}" \
+            --update-secrets=SENTRY_DSN=auth-sentry-dsn:latest \
+            --update-env-vars="SENTRY_RELEASE=$COMMIT_SHA"
