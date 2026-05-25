@@ -1,15 +1,18 @@
 """Regression tests for Steam OAuth display_name handling.
 
-Locks down the contract from ag-tech-group/criticalbit-auth-api#26: the Steam
-callback must never write a SteamID64 (or a "Steam User <id>" placeholder)
-into `User.display_name`. When `ISteamUser/GetPlayerSummaries` fails or
-returns no usable persona name, `display_name` stays `None` so both frontends
-fall back to email rather than rendering a raw 17-digit number.
+The Steam callback must never write a `"Steam User <id>"` placeholder into
+`User.display_name`. When `ISteamUser/GetPlayerSummaries` fails or returns no
+usable persona name, `display_name` stays `None` so both frontends fall back
+to email rather than rendering a synthetic name.
 
-This file covers both the pure-helper layer (`_personaname`,
-`_get_steam_profile`) and the persistence layer (`_find_or_create_user`),
-plus the PATCH /auth/me normalization path that also could have leaked the
-empty string into the column.
+Also covers the alerting contract: when Steam returns HTTP 401/403 we capture
+a Sentry error so a revoked / domain-mismatched API key surfaces immediately
+instead of silently degrading every login.
+
+This file covers the pure-helper layer (`_personaname`, `_get_steam_profile`),
+the persistence layer (`_find_or_create_user`), and the PATCH /auth/me
+normalization path that also could have leaked the empty string into the
+column.
 """
 
 from __future__ import annotations
@@ -57,14 +60,12 @@ class TestPersonaname:
     def test_whitespace_only_returns_none(self) -> None:
         assert _personaname({"personaname": "   "}) is None
 
-    def test_steamid64_string_returns_none(self) -> None:
-        # The exact regression — Steam returning the SteamID64 as personaname
-        # must not be propagated to display_name.
-        assert _personaname({"personaname": A_STEAM_ID}) is None
-
-    def test_numeric_name_below_steamid_length_is_kept(self) -> None:
-        # Don't be over-eager: a short numeric handle is still a name.
+    def test_numeric_name_is_kept(self) -> None:
+        # User-chosen handles can be all-digits — including long ones that
+        # happen to look SteamID-shaped. We don't second-guess Steam's
+        # response; if the API returned a non-empty personaname, use it.
         assert _personaname({"personaname": "12345"}) == "12345"
+        assert _personaname({"personaname": A_STEAM_ID}) == A_STEAM_ID
 
     def test_non_string_field_returns_none(self) -> None:
         assert _personaname({"personaname": 12345}) is None
@@ -146,6 +147,62 @@ class TestGetSteamProfile:
 
         patch_httpx(handler)
         assert await _get_steam_profile(A_STEAM_ID) == {}
+
+
+# --- Sentry alerts on API-key rejection ---------------------------------
+
+
+class TestSteamApiKeyAlerts:
+    """A revoked or domain-mismatched Steam API key returns 401/403 on every
+    call and silently breaks display_name capture for every user. The 403
+    must be captured in Sentry as an error so it pages a human, while
+    transient 429/5xx must NOT — they self-heal on the next request and
+    would just create alert fatigue.
+    """
+
+    @pytest.fixture
+    def capture_sentry(self, monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+        captured: list[dict] = []
+
+        def _capture(message: str, level: str = "info", **kwargs) -> None:
+            captured.append({"message": message, "level": level, **kwargs})
+
+        monkeypatch.setattr(auth_steam.sentry_sdk, "capture_message", _capture)
+        return captured
+
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_captures_sentry_error_on_key_rejection(
+        self, status, steam_api_key, patch_httpx, capture_sentry
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, text="forbidden")
+
+        patch_httpx(handler)
+        assert await _get_steam_profile(A_STEAM_ID) == {}
+        assert len(capture_sentry) == 1
+        assert capture_sentry[0]["level"] == "error"
+        assert str(status) in capture_sentry[0]["message"]
+
+    @pytest.mark.parametrize("status", [429, 500, 502, 503])
+    async def test_does_not_capture_on_transient_failure(
+        self, status, steam_api_key, patch_httpx, capture_sentry
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(status, text="transient")
+
+        patch_httpx(handler)
+        assert await _get_steam_profile(A_STEAM_ID) == {}
+        assert capture_sentry == []
+
+    async def test_does_not_capture_on_transport_error(
+        self, steam_api_key, patch_httpx, capture_sentry
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("boom", request=request)
+
+        patch_httpx(handler)
+        assert await _get_steam_profile(A_STEAM_ID) == {}
+        assert capture_sentry == []
 
 
 # --- _find_or_create_user -----------------------------------------------
@@ -264,36 +321,6 @@ class TestSteamCallbackEndToEnd:
             return A_STEAM_ID
 
         monkeypatch.setattr(auth_steam, "_verify_openid_assertion", _ok)
-
-    async def test_callback_persists_null_when_personaname_is_steamid(
-        self,
-        client: AsyncClient,
-        session: AsyncSession,
-        stub_openid,
-        steam_api_key,
-        patch_httpx,
-    ) -> None:
-        # Steam returns the SteamID64 as personaname (the bug scenario).
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                json={"response": {"players": [{"personaname": A_STEAM_ID, "avatarfull": ""}]}},
-            )
-
-        patch_httpx(handler)
-
-        resp = await client.get("/auth/steam/callback", follow_redirects=False)
-        assert resp.status_code == 302, resp.text
-
-        users = (
-            (await session.execute(select(User).where(User.email.like("steam_%"))))
-            .unique()
-            .scalars()
-            .all()
-        )
-        assert len(users) == 1, users
-        assert users[0].display_name is None
-        assert users[0].avatar_url is None
 
     async def test_callback_persists_null_when_profile_fetch_fails(
         self,

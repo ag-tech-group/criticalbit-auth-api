@@ -12,6 +12,7 @@ import re
 from urllib.parse import urlencode
 
 import httpx
+import sentry_sdk
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -165,6 +166,17 @@ async def _get_steam_profile(steam_id: str) -> dict:
 
     if resp.status_code != 200:
         logger.warning("steam.profile_fetch_failed", steam_id=steam_id, status=resp.status_code)
+        # 401/403 mean the API key itself is rejected — revoked, invalid, or
+        # bound to a domain that no longer matches. These are persistent and
+        # need a human to rotate the key; surface loudly via Sentry. 429/5xx
+        # are transient and self-heal on the next request.
+        if resp.status_code in (401, 403):
+            sentry_sdk.capture_message(
+                f"Steam Web API rejected our API key (HTTP {resp.status_code}). "
+                "Rotate the key at https://steamcommunity.com/dev/apikey and "
+                "push it to Secret Manager (auth-steam-api-key).",
+                level="error",
+            )
         return {}
 
     try:
@@ -178,22 +190,14 @@ async def _get_steam_profile(steam_id: str) -> dict:
 def _personaname(profile: dict) -> str | None:
     """Extract a usable persona name from a Steam profile.
 
-    Returns None when:
-    - the profile is empty (GetPlayerSummaries failed or returned no players),
-    - `personaname` is missing or blank after stripping whitespace,
-    - `personaname` is literally the SteamID64 — some accounts default it that
-      way and surfacing a raw 17-digit number is worse than null, since the UI
-      falls back to email.
+    Returns None when the profile is empty (GetPlayerSummaries failed or
+    returned no players) or `personaname` is missing/blank after stripping.
     """
     raw = profile.get("personaname")
     if not isinstance(raw, str):
         return None
     name = raw.strip()
-    if not name:
-        return None
-    if name.isdigit() and len(name) >= 16:
-        return None
-    return name
+    return name or None
 
 
 async def _find_or_create_user(
