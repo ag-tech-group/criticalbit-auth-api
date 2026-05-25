@@ -12,13 +12,20 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
     Inherits from FastAPI-Users base which provides:
     - id: UUID primary key
-    - email: unique email address
     - hashed_password: bcrypt hashed password
     - is_active: whether user can authenticate
     - is_superuser: admin privileges
     - is_verified: email verification status
+
+    `email` is overridden here to be nullable: Steam OAuth users have no
+    email until they pass through the accept-tos gate (issue #31). The
+    unique index still works on nullable columns — Postgres and SQLite
+    both permit multiple NULLs in a UNIQUE index by default.
     """
 
+    email: Mapped[str | None] = mapped_column(
+        String(length=320), unique=True, index=True, nullable=True
+    )
     role: Mapped[str] = mapped_column(
         String(50), default="user", server_default="user", nullable=False
     )

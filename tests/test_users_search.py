@@ -59,10 +59,11 @@ async def seeded(session: AsyncSession) -> list[User]:
             avatar_url=None,
         ),
         User(
-            # Synthetic Steam-style email — should match an "@users.criticalbit"
-            # query as substring, but the email must NOT come back in the body.
+            # Steam user — no email on file (post-#36 model). Still
+            # matchable via display_name; the email-substring branch of
+            # the search simply doesn't fire for null-email rows.
             id=uuid4(),
-            email="steam_76561198000000099@users.criticalbit.gg",
+            email=None,
             hashed_password="!steam-oauth-no-password",
             display_name="GabeStreams",
             avatar_url="https://example.com/gabe.png",
@@ -145,15 +146,16 @@ async def test_email_is_never_in_response(auth_client: AsyncClient, seeded: list
         assert set(row.keys()) <= {"id", "display_name", "avatar_url"}
 
 
-async def test_synthetic_steam_email_matches_but_not_returned(
+async def test_null_email_user_is_matchable_via_display_name(
     auth_client: AsyncClient, seeded: list[User]
 ) -> None:
-    # Querying for the synthetic-email suffix should still find the Steam user.
-    resp = await auth_client.get("/users/search?q=users.criticalbit")
+    # Post-#36, Steam users have email=NULL. Search's email-substring
+    # branch can't match them — but display_name still can.
+    resp = await auth_client.get("/users/search?q=GabeStreams")
     body = resp.json()
     assert resp.status_code == 200
     assert any(row["display_name"] == "GabeStreams" for row in body)
-    # And the synthetic email is not echoed back.
+    # Email is never in the response payload regardless.
     for row in body:
         assert "email" not in row
 

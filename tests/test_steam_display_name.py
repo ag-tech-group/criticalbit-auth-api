@@ -231,7 +231,7 @@ class TestFindOrCreateUser:
         # Seed an existing linked account with a good display_name.
         existing = User(
             id=uuid4(),
-            email=f"steam_{A_STEAM_ID}@users.criticalbit.gg",
+            email=None,
             hashed_password="!steam-oauth-no-password",
             is_active=True,
             is_verified=False,
@@ -246,7 +246,7 @@ class TestFindOrCreateUser:
                 oauth_name="steam",
                 access_token="",
                 account_id=A_STEAM_ID,
-                account_email=existing.email,
+                account_email="",
             )
         )
         await session.commit()
@@ -262,7 +262,7 @@ class TestFindOrCreateUser:
     ) -> None:
         existing = User(
             id=uuid4(),
-            email=f"steam_{A_STEAM_ID}@users.criticalbit.gg",
+            email=None,
             hashed_password="!steam-oauth-no-password",
             is_active=True,
             is_verified=False,
@@ -276,7 +276,7 @@ class TestFindOrCreateUser:
                 oauth_name="steam",
                 access_token="",
                 account_id=A_STEAM_ID,
-                account_email=existing.email,
+                account_email="",
             )
         )
         await session.commit()
@@ -338,8 +338,11 @@ class TestSteamCallbackEndToEnd:
         resp = await client.get("/auth/steam/callback", follow_redirects=False)
         assert resp.status_code == 302, resp.text
 
+        # Steam users have email=NULL post-#36; locate the just-created
+        # user via that condition. Tests get a fresh DB per the autouse
+        # setup_database fixture, so only this run's user is present.
         users = (
-            (await session.execute(select(User).where(User.email.like("steam_%"))))
+            (await session.execute(select(User).where(User.email.is_(None))))
             .unique()
             .scalars()
             .all()
@@ -375,8 +378,11 @@ class TestSteamCallbackEndToEnd:
         resp = await client.get("/auth/steam/callback", follow_redirects=False)
         assert resp.status_code == 302, resp.text
 
+        # Steam users have email=NULL post-#36; locate the just-created
+        # user via that condition. Tests get a fresh DB per the autouse
+        # setup_database fixture, so only this run's user is present.
         users = (
-            (await session.execute(select(User).where(User.email.like("steam_%"))))
+            (await session.execute(select(User).where(User.email.is_(None))))
             .unique()
             .scalars()
             .all()

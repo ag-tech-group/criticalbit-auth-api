@@ -2,12 +2,17 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi_users import schemas
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class UserRead(schemas.BaseUser[UUID]):
-    """Schema for reading user data."""
+    """Schema for reading user data.
 
+    `email` is `None` for Steam OAuth users who haven't passed through the
+    accept-tos email-collection gate (issue #36).
+    """
+
+    email: EmailStr | None = None  # type: ignore[assignment]
     role: str = "user"
     display_name: str | None = None
     avatar_url: str | None = None
@@ -46,9 +51,12 @@ class UserLookupResult(BaseModel):
     consumers that already know the user IDs (and so already have authority
     over the records). Kept separate from UserRead so admin-only fields
     (role, is_superuser, tos_*) don't leak.
+
+    `email` is `None` for Steam users who haven't yet provided one — same
+    semantics as UserRead.
     """
 
     id: UUID
-    email: str
+    email: str | None = None
     display_name: str | None = None
     avatar_url: str | None = None
