@@ -1,13 +1,11 @@
-"""Tests for the Steam email-collection gate on POST /auth/accept-tos.
+"""Tests for the email-collection gate on POST /auth/accept-tos.
 
-Covers issue #31:
-- Synthetic-email detection helper.
-- Steam users with synthetic email must supply a real email.
-- Supplied email must not itself be a synthetic placeholder.
+Covers issues #31 + #36:
+- Users with no email on file (Steam OAuth users) must supply one.
 - Collision with an existing account returns a structured 422.
-- Successful submission overwrites the email, resets is_verified, and
+- Successful submission stores the email, resets is_verified, and
   dispatches a verification email (non-blocking).
-- Non-synthetic users still accept TOS without supplying an email.
+- Users who already have an email accept TOS without supplying one.
 """
 
 from __future__ import annotations
@@ -19,54 +17,18 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import users as users_module
-from app.auth.steam_email import (
-    is_synthetic_steam_email,
-    synthetic_steam_email,
-)
 from app.main import app
 from app.models.user import User
-
-A_STEAM_ID = "76561198000000042"
-
-
-# --- Synthetic email helper ------------------------------------------------
-
-
-class TestIsSyntheticSteamEmail:
-    def test_canonical_synthetic_is_detected(self) -> None:
-        assert is_synthetic_steam_email(synthetic_steam_email(A_STEAM_ID))
-
-    def test_case_insensitive(self) -> None:
-        assert is_synthetic_steam_email(f"STEAM_{A_STEAM_ID}@USERS.CRITICALBIT.GG")
-
-    def test_human_email_not_detected(self) -> None:
-        assert not is_synthetic_steam_email("alice@example.com")
-
-    def test_steam_prefix_alone_not_detected(self) -> None:
-        # Wrong domain.
-        assert not is_synthetic_steam_email("steam_123@example.com")
-
-    def test_users_domain_alone_not_detected(self) -> None:
-        # Right domain but no steam_ prefix — would be a hypothetical real
-        # user on that domain, not a synthetic placeholder.
-        assert not is_synthetic_steam_email("alice@users.criticalbit.gg")
-
-    def test_none_returns_false(self) -> None:
-        assert not is_synthetic_steam_email(None)
-
-    def test_empty_returns_false(self) -> None:
-        assert not is_synthetic_steam_email("")
-
 
 # --- accept-tos behavior ---------------------------------------------------
 
 
 @pytest.fixture
 def steam_user() -> User:
-    """A user who came in via Steam OpenID — still on the placeholder email."""
+    """A user who came in via Steam OpenID — no email on file yet."""
     return User(
         id=uuid4(),
-        email=synthetic_steam_email(A_STEAM_ID),
+        email=None,
         hashed_password="!steam-oauth-no-password",
         is_active=True,
         is_verified=False,
@@ -102,13 +64,13 @@ def captured_verification_emails(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return captured
 
 
-# --- non-synthetic users keep the old behavior -----------------------------
+# --- users who already have an email keep the old behavior -----------------
 
 
-async def test_non_steam_user_accepts_tos_without_email(
+async def test_user_with_email_accepts_tos_without_body(
     auth_client: AsyncClient, test_user: User
 ) -> None:
-    # test_user has email "test@example.com" — not synthetic.
+    # test_user has email "test@example.com" — already set.
     resp = await auth_client.post("/auth/accept-tos")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -116,15 +78,15 @@ async def test_non_steam_user_accepts_tos_without_email(
     assert body["tos_version"]
 
 
-async def test_non_steam_user_accepts_tos_with_empty_body(auth_client: AsyncClient) -> None:
+async def test_user_with_email_accepts_tos_with_empty_body(auth_client: AsyncClient) -> None:
     resp = await auth_client.post("/auth/accept-tos", json={})
     assert resp.status_code == 200, resp.text
 
 
-# --- synthetic users: email required ---------------------------------------
+# --- users with no email: email required -----------------------------------
 
 
-async def test_steam_user_without_email_is_rejected(
+async def test_null_email_user_without_email_is_rejected(
     auth_as_steam: AsyncClient,
 ) -> None:
     resp = await auth_as_steam.post("/auth/accept-tos", json={})
@@ -133,32 +95,7 @@ async def test_steam_user_without_email_is_rejected(
     assert detail["code"] == "email_required"
 
 
-async def test_steam_user_with_synthetic_email_is_rejected(
-    auth_as_steam: AsyncClient,
-) -> None:
-    # Trying to satisfy the gate by re-submitting the placeholder must fail.
-    resp = await auth_as_steam.post(
-        "/auth/accept-tos",
-        json={"email": synthetic_steam_email(A_STEAM_ID)},
-    )
-    assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"]["code"] == "email_invalid"
-
-
-async def test_steam_user_with_other_synthetic_email_is_rejected(
-    auth_as_steam: AsyncClient,
-) -> None:
-    # Even a different steam_id placeholder must be rejected — the suffix
-    # itself is forbidden.
-    resp = await auth_as_steam.post(
-        "/auth/accept-tos",
-        json={"email": "steam_99999999999999999@users.criticalbit.gg"},
-    )
-    assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"]["code"] == "email_invalid"
-
-
-# --- synthetic users: collision -------------------------------------------
+# --- users with no email: collision ---------------------------------------
 
 
 async def test_email_collision_returns_422(
@@ -208,7 +145,7 @@ async def test_email_collision_is_case_insensitive(
 # --- happy path -----------------------------------------------------------
 
 
-async def test_successful_submit_replaces_email_and_resets_verification(
+async def test_successful_submit_sets_email_and_resets_verification(
     auth_as_steam: AsyncClient,
     steam_user: User,
     session: AsyncSession,

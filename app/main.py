@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import auth_backend, current_active_user, fastapi_users
 from app.auth.keys import get_jwks
 from app.auth.security_logging import SecurityEvent, log_security_event
-from app.auth.steam_email import is_synthetic_steam_email
 from app.auth.users import UserManager, get_user_manager
 from app.config import settings
 from app.database import get_async_session
@@ -201,9 +200,9 @@ CURRENT_TOS_VERSION = "2026-03-16"
 class AcceptTosRequest(BaseModel):
     """Body for POST /auth/accept-tos.
 
-    `email` is only required for Steam users still carrying the synthetic
-    `steam_…@users.criticalbit.gg` placeholder — see issue #31. Other users
-    can omit the body entirely.
+    `email` is only required for users without one on file (Steam OAuth
+    users before they pass through this gate). Other users can omit the
+    body entirely. See issues #31 and #36.
     """
 
     email: EmailStr | None = None
@@ -218,15 +217,16 @@ async def accept_tos(
 ):
     """Record the user's acceptance of the current Terms of Service.
 
-    For Steam users whose email is still the synthetic placeholder, this
-    endpoint doubles as the email-collection gate: an `email` must be
-    supplied, replaces the placeholder, resets `is_verified`, and triggers
-    a verification email (non-blocking). See issue #31.
+    For users with no email on file (Steam OAuth users who haven't
+    provided one yet), this endpoint doubles as the email-collection
+    gate: an `email` must be supplied, is stored on the user, resets
+    `is_verified`, and triggers a verification email (non-blocking).
+    See issues #31 and #36.
     """
     from datetime import UTC, datetime
 
-    replaced_synthetic_email = False
-    if is_synthetic_steam_email(user.email):
+    replaced_missing_email = False
+    if user.email is None:
         if not body.email:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -236,14 +236,6 @@ async def accept_tos(
                 },
             )
         new_email = body.email.strip().lower()
-        if is_synthetic_steam_email(new_email):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "code": "email_invalid",
-                    "message": "Please provide a real email address.",
-                },
-            )
         # Collision check — case-insensitive to match how we store/compare.
         collision = await session.execute(
             sa.select(User).where(
@@ -265,7 +257,7 @@ async def accept_tos(
 
         user.email = new_email
         user.is_verified = False
-        replaced_synthetic_email = True
+        replaced_missing_email = True
 
     user.tos_accepted_at = datetime.now(UTC)
     user.tos_version = CURRENT_TOS_VERSION
@@ -273,7 +265,7 @@ async def accept_tos(
     await session.commit()
     await session.refresh(user)
 
-    if replaced_synthetic_email:
+    if replaced_missing_email:
         # Non-blocking: if the verification dispatch fails the user can still
         # use the platform; they'll get a fresh chance via /auth/request-verify-token.
         try:

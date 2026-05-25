@@ -50,9 +50,10 @@ async def seeded(session: AsyncSession) -> list[User]:
             avatar_url=None,
         ),
         User(
-            # Synthetic Steam placeholder — must be returned as-is.
+            # Steam user — no email on file (post-#36 model). Lookup
+            # must return email=null for these rows.
             id=uuid4(),
-            email="steam_76561198000000077@users.criticalbit.gg",
+            email=None,
             hashed_password="!steam-oauth-no-password",
             display_name=None,
             avatar_url=None,
@@ -151,18 +152,16 @@ async def test_null_display_and_avatar_are_returned_as_null(
     assert body[0]["avatar_url"] is None
 
 
-async def test_synthetic_steam_email_is_returned_as_is(
+async def test_null_email_user_returns_null_email(
     auth_client: AsyncClient, seeded: list[User]
 ) -> None:
-    # The lookup endpoint reflects whatever's persisted — Steam users who
-    # haven't hit the accept-tos gate still appear with their synthetic
-    # placeholder, and that's what we return (caller's responsibility to
-    # decide what to render).
+    # Steam users who haven't hit the accept-tos gate have email=NULL;
+    # lookup reflects that as-is. The caller decides what to render.
     steam_user = seeded[3]
     resp = await auth_client.get(f"/users/lookup?ids={steam_user.id}")
     body = resp.json()
     assert resp.status_code == 200
-    assert body[0]["email"].endswith("@users.criticalbit.gg")
+    assert body[0]["email"] is None
 
 
 # --- input formats ----------------------------------------------------------

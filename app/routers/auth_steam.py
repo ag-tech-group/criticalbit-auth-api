@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.backend import get_jwt_strategy
 from app.auth.refresh import create_refresh_token, set_refresh_cookie
 from app.auth.security_logging import SecurityEvent, log_security_event
-from app.auth.steam_email import synthetic_steam_email
 from app.config import settings
 from app.database import get_async_session
 from app.models.oauth_account import OAuthAccount
@@ -233,12 +232,11 @@ async def _find_or_create_user(
         await session.commit()
         return user
 
-    # Create a new user with a placeholder email (Steam doesn't provide emails)
-    # The email is a non-deliverable placeholder — user can update it later
-    placeholder_email = synthetic_steam_email(steam_id)
-
+    # Steam doesn't expose an email via OpenID. Leave User.email as NULL;
+    # the accept-tos gate (issue #31) collects a real address before the
+    # user reaches any consumer app.
     user = User(
-        email=placeholder_email,
+        email=None,
         hashed_password="!steam-oauth-no-password",
         is_active=True,
         is_verified=False,
@@ -248,13 +246,16 @@ async def _find_or_create_user(
     session.add(user)
     await session.flush()
 
-    # Link the Steam account
+    # Link the Steam account. account_email is required non-null by the
+    # FastAPI-Users base table but unused for Steam (we don't go through
+    # the OAuth router's associate_by_email path), so an empty string is
+    # fine — avoids a separate model override for a dead-weight field.
     oauth_account = OAuthAccount(
         user_id=user.id,
         oauth_name="steam",
         access_token="",
         account_id=steam_id,
-        account_email=placeholder_email,
+        account_email="",
     )
     session.add(oauth_account)
     await session.commit()
