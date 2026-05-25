@@ -33,11 +33,14 @@ def upgrade() -> None:
         existing_type=sa.String(length=320),
         nullable=True,
     )
-    # Postgres treats `\` as the default LIKE escape character, so `\_`
-    # matches a literal underscore (rather than the wildcard meaning).
+    # Postgres's LIKE escape character is set explicitly to `\` so `\_`
+    # matches a literal underscore (rather than the single-char wildcard).
+    # Note the Python string: `\\_` produces the literal `\_` characters
+    # for SQL — not a raw string (which would keep the `\"user\"`
+    # backslashes literal and break the statement).
     op.execute(
-        r"UPDATE \"user\" SET email = NULL "
-        r"WHERE email LIKE 'steam\_%@users.criticalbit.gg'"
+        'UPDATE "user" SET email = NULL '
+        "WHERE email LIKE 'steam\\_%@users.criticalbit.gg' ESCAPE '\\'"
     )
 
 
