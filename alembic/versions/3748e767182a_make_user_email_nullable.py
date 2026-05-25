@@ -39,7 +39,7 @@ def upgrade() -> None:
     # for SQL — not a raw string (which would keep the `\"user\"`
     # backslashes literal and break the statement).
     op.execute(
-        "UPDATE \"user\" SET email = NULL "
+        'UPDATE "user" SET email = NULL '
         "WHERE email LIKE 'steam\\_%@users.criticalbit.gg' ESCAPE '\\'"
     )
 
