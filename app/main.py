@@ -1,13 +1,14 @@
 import time
 import uuid
 
+import sqlalchemy as sa
 import structlog
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from limits import RateLimitItem, parse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import auth_backend, current_active_user, fastapi_users
 from app.auth.keys import get_jwks
 from app.auth.security_logging import SecurityEvent, log_security_event
+from app.auth.steam_email import is_synthetic_steam_email
+from app.auth.users import UserManager, get_user_manager
 from app.config import settings
 from app.database import get_async_session
 from app.features import router as features_router
@@ -69,6 +72,11 @@ app.include_router(
 )
 app.include_router(
     fastapi_users.get_reset_password_router(),
+    prefix="/auth",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_verify_router(UserRead),
     prefix="/auth",
     tags=["auth"],
 )
@@ -190,19 +198,89 @@ async def update_current_user(
 CURRENT_TOS_VERSION = "2026-03-16"
 
 
+class AcceptTosRequest(BaseModel):
+    """Body for POST /auth/accept-tos.
+
+    `email` is only required for Steam users still carrying the synthetic
+    `steam_…@users.criticalbit.gg` placeholder — see issue #31. Other users
+    can omit the body entirely.
+    """
+
+    email: EmailStr | None = None
+
+
 @app.post("/auth/accept-tos", response_model=UserRead, tags=["auth"])
 async def accept_tos(
+    body: AcceptTosRequest = Body(default_factory=AcceptTosRequest),
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
+    user_manager: UserManager = Depends(get_user_manager),
 ):
-    """Record the user's acceptance of the current Terms of Service."""
+    """Record the user's acceptance of the current Terms of Service.
+
+    For Steam users whose email is still the synthetic placeholder, this
+    endpoint doubles as the email-collection gate: an `email` must be
+    supplied, replaces the placeholder, resets `is_verified`, and triggers
+    a verification email (non-blocking). See issue #31.
+    """
     from datetime import UTC, datetime
+
+    replaced_synthetic_email = False
+    if is_synthetic_steam_email(user.email):
+        if not body.email:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "email_required",
+                    "message": "An email address is required to finish setting up your account.",
+                },
+            )
+        new_email = body.email.strip().lower()
+        if is_synthetic_steam_email(new_email):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "email_invalid",
+                    "message": "Please provide a real email address.",
+                },
+            )
+        # Collision check — case-insensitive to match how we store/compare.
+        collision = await session.execute(
+            sa.select(User).where(
+                sa.func.lower(User.email) == new_email,
+                User.id != user.id,
+            )
+        )
+        if collision.unique().scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "email_already_registered",
+                    "message": (
+                        "An account with that email already exists. Sign in to that "
+                        "account and link Steam from your profile."
+                    ),
+                },
+            )
+
+        user.email = new_email
+        user.is_verified = False
+        replaced_synthetic_email = True
 
     user.tos_accepted_at = datetime.now(UTC)
     user.tos_version = CURRENT_TOS_VERSION
     session.add(user)
     await session.commit()
     await session.refresh(user)
+
+    if replaced_synthetic_email:
+        # Non-blocking: if the verification dispatch fails the user can still
+        # use the platform; they'll get a fresh chance via /auth/request-verify-token.
+        try:
+            await user_manager.request_verify(user)
+        except Exception:
+            logger.exception("verification.dispatch_failed", user_id=str(user.id))
+
     return user
 
 
