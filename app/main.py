@@ -21,7 +21,7 @@ from app.database import get_async_session
 from app.features import router as features_router
 from app.logging import setup_logging
 from app.models.user import User
-from app.routers import admin_router, user_consent_router
+from app.routers import admin_router, user_consent_router, users_router
 from app.routers.auth_refresh import router as auth_refresh_router
 from app.schemas.user import UserCreate, UserRead
 from app.sentry import init_sentry
@@ -221,19 +221,21 @@ async def delete_current_user(
     await session.commit()
 
 
-# Path-specific rate limits for auth endpoints
+# Path-specific rate limits, keyed by "METHOD /path".
 _AUTH_RATE_LIMITS: dict[str, RateLimitItem] = {
-    "/auth/jwt/login": parse("5/minute"),
-    "/auth/register": parse("3/minute"),
-    "/auth/refresh": parse("30/minute"),
+    "POST /auth/jwt/login": parse("5/minute"),
+    "POST /auth/register": parse("3/minute"),
+    "POST /auth/refresh": parse("30/minute"),
+    # /users/search is auth-bearing but enumeration-adjacent, so cap it.
+    "GET /users/search": parse("60/minute"),
 }
 
 
 @app.middleware("http")
 async def rate_limit_auth(request: Request, call_next) -> Response:
-    """Apply rate limits to auth endpoints."""
-    rate_limit = _AUTH_RATE_LIMITS.get(request.url.path)
-    if rate_limit and request.method == "POST":
+    """Apply rate limits to auth and enumeration-adjacent endpoints."""
+    rate_limit = _AUTH_RATE_LIMITS.get(f"{request.method} {request.url.path}")
+    if rate_limit:
         key = get_remote_address(request)
         if not limiter._limiter.hit(rate_limit, key):
             log_security_event(
@@ -291,6 +293,7 @@ async def request_logging_middleware(request: Request, call_next) -> Response:
 # API routes
 app.include_router(admin_router)
 app.include_router(user_consent_router)
+app.include_router(users_router)
 app.include_router(features_router)
 
 
