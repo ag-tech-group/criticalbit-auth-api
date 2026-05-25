@@ -37,3 +37,18 @@ class UserSearchResult(BaseModel):
     id: UUID
     display_name: str | None = None
     avatar_url: str | None = None
+
+
+class UserLookupResult(BaseModel):
+    """Projection returned by /users/lookup.
+
+    Includes email — the endpoint is a privileged-context bulk resolver for
+    consumers that already know the user IDs (and so already have authority
+    over the records). Kept separate from UserRead so admin-only fields
+    (role, is_superuser, tos_*) don't leak.
+    """
+
+    id: UUID
+    email: str
+    display_name: str | None = None
+    avatar_url: str | None = None

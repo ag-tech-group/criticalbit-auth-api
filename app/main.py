@@ -306,6 +306,8 @@ _AUTH_RATE_LIMITS: dict[str, RateLimitItem] = {
     "POST /auth/refresh": parse("30/minute"),
     # /users/search is auth-bearing but enumeration-adjacent, so cap it.
     "GET /users/search": parse("60/minute"),
+    # /users/lookup is bulk-by-id; low expected volume but still cap.
+    "GET /users/lookup": parse("60/minute"),
 }
 
 
