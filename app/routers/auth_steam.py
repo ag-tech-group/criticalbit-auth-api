@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.backend import get_jwt_strategy
 from app.auth.refresh import create_refresh_token, set_refresh_cookie
 from app.auth.security_logging import SecurityEvent, log_security_event
+from app.auth.steam_email import synthetic_steam_email
 from app.config import settings
 from app.database import get_async_session
 from app.models.oauth_account import OAuthAccount
@@ -234,7 +235,7 @@ async def _find_or_create_user(
 
     # Create a new user with a placeholder email (Steam doesn't provide emails)
     # The email is a non-deliverable placeholder — user can update it later
-    placeholder_email = f"steam_{steam_id}@users.criticalbit.gg"
+    placeholder_email = synthetic_steam_email(steam_id)
 
     user = User(
         email=placeholder_email,

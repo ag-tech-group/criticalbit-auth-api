@@ -47,3 +47,35 @@ def send_reset_password_email(email: str, token: str) -> None:
         logger.info("email.sent", to=email, type="reset_password")
     except Exception:
         logger.exception("email.failed", to=email, type="reset_password")
+
+
+def send_verification_email(email: str, token: str) -> None:
+    """Send a verification email with a link containing the verify token."""
+    verify_url = f"{settings.frontend_url}/verify-email?token={token}"
+
+    if not _email_enabled:
+        logger.warning(
+            "email.skipped",
+            reason="RESEND_API_KEY not set",
+            to=email,
+            verify_url=verify_url,
+        )
+        return
+
+    try:
+        resend.Emails.send(
+            {
+                "from": settings.email_from,
+                "to": email,
+                "subject": "Verify your criticalbit.gg email",
+                "html": f"""
+                    <h2>Verify your email</h2>
+                    <p>Click the link below to confirm this address. This link expires in 1 hour.</p>
+                    <p><a href="{verify_url}">Verify email</a></p>
+                    <p>If you didn't request this, you can safely ignore this email.</p>
+                """,
+            }
+        )
+        logger.info("email.sent", to=email, type="verification")
+    except Exception:
+        logger.exception("email.failed", to=email, type="verification")
