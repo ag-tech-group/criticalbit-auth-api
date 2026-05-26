@@ -17,6 +17,7 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 - Email/password registration and login
 - Google OAuth and Steam OpenID sign-in; link either provider to an existing account
 - Password reset via email (Resend)
+- Email verification (auto-sent on registration); OAuth merge-by-email is refused for unverified accounts to prevent pre-registration takeover
 - RS256-signed JWT access tokens (15 min) in httpOnly cookies scoped to `.criticalbit.gg`, with a public JWKS endpoint so other services can verify them
 - Refresh token rotation with family-based theft detection
 - Role-based authorization (user, admin)
@@ -36,6 +37,8 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 | POST | `/auth/refresh` | Rotate the refresh token, mint a new access token |
 | POST | `/auth/forgot-password` | Send a password-reset email |
 | POST | `/auth/reset-password` | Set a new password using the emailed token |
+| POST | `/auth/request-verify-token` | Send a verification email to the given address |
+| POST | `/auth/verify` | Mark the user verified using the emailed token |
 | GET | `/auth/google/authorize` | Begin Google OAuth login (redirects to Google) |
 | GET | `/auth/google/callback` | Google OAuth callback |
 | GET | `/auth/google/associate/authorize` | Link a Google account to the signed-in user |

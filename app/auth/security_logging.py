@@ -14,6 +14,7 @@ class SecurityEvent(StrEnum):
     TOKEN_REFRESH = "TOKEN_REFRESH"
     RATE_LIMIT_HIT = "RATE_LIMIT_HIT"
     ACCOUNT_DELETED = "ACCOUNT_DELETED"
+    OAUTH_MERGE_REFUSED = "OAUTH_MERGE_REFUSED"
 
 
 def log_security_event(

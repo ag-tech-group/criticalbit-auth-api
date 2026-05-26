@@ -6,7 +6,7 @@ import sqlalchemy as sa
 import structlog
 from fastapi import Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
+from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, exceptions, models
 from fastapi_users.db import SQLAlchemyUserDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,71 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
             request=request,
             user_id=str(user.id),
             email=user.email,
+        )
+        # Dispatch the verification email. Non-blocking: a Resend outage must
+        # not turn registration into a 500. The user can re-request via
+        # POST /auth/request-verify-token.
+        if user.email and not user.is_verified:
+            try:
+                await self.request_verify(user, request)
+            except Exception:
+                logger.exception("verification.dispatch_failed", user_id=str(user.id))
+
+    async def oauth_callback(
+        self,
+        oauth_name: str,
+        access_token: str,
+        account_id: str,
+        account_email: str,
+        expires_at: int | None = None,
+        refresh_token: str | None = None,
+        request: Request | None = None,
+        *,
+        associate_by_email: bool = False,
+        is_verified_by_default: bool = False,
+    ) -> User:
+        """Hardened OAuth callback that refuses to merge by email into an
+        unverified existing account.
+
+        Without this guard, anyone can pre-register an unverified row with a
+        victim's email; the next time the real victim signs in via this
+        provider, fastapi-users would silently link the attacker's row to the
+        victim's OAuth identity, handing the attacker control of both. The
+        merge is safe only when the existing user has previously proven
+        ownership of the email (is_verified=True).
+        """
+        if associate_by_email:
+            try:
+                await self.get_by_oauth_account(oauth_name, account_id)
+            except exceptions.UserNotExists:
+                try:
+                    existing = await self.get_by_email(account_email)
+                except exceptions.UserNotExists:
+                    pass  # No collision — base will create a fresh user.
+                else:
+                    if not existing.is_verified:
+                        log_security_event(
+                            SecurityEvent.OAUTH_MERGE_REFUSED,
+                            request=request,
+                            user_id=str(existing.id),
+                            email=account_email,
+                            detail=f"oauth_name={oauth_name} reason=existing_unverified",
+                        )
+                        # Raising UserAlreadyExists mirrors the base behavior
+                        # for associate_by_email=False — the OAuth router maps
+                        # it to a 400 with code OAUTH_USER_ALREADY_EXISTS.
+                        raise exceptions.UserAlreadyExists()
+
+        return await super().oauth_callback(
+            oauth_name=oauth_name,
+            access_token=access_token,
+            account_id=account_id,
+            account_email=account_email,
+            expires_at=expires_at,
+            refresh_token=refresh_token,
+            request=request,
+            associate_by_email=associate_by_email,
+            is_verified_by_default=is_verified_by_default,
         )
 
     async def on_after_login(
