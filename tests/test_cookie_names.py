@@ -311,7 +311,13 @@ async def test_logout_clears_both_cookies_under_new_names(api: AsyncClient) -> N
 
 @pytest.fixture
 def oauth_router_present() -> bool:
-    return any(getattr(r, "path", "") == "/auth/google/authorize" for r in app.routes)
+    """True only when the Google provider is actually enabled in the
+    registry. The router itself is now mounted unconditionally — having
+    the route registered no longer implies Google credentials are set."""
+    from app.providers import get_provider
+
+    provider = get_provider("google")
+    return provider is not None and provider.is_enabled
 
 
 async def test_oauth_authorize_sets_renamed_csrf_cookie(
@@ -361,8 +367,15 @@ def test_oauth_csrf_cookie_subprocess() -> None:
 
         from app.main import app  # noqa: E402
 
+        # The unified provider router uses a dynamic path
+        # (/auth/{provider_name}/authorize). Match the templated form OR a
+        # statically-mounted equivalent so this test survives both wirings.
         has_authorize = any(
-            getattr(r, "path", "") == "/auth/google/authorize" for r in app.routes
+            getattr(r, "path", "") in (
+                "/auth/google/authorize",
+                "/auth/{provider_name}/authorize",
+            )
+            for r in app.routes
         )
 
         async def _run():
@@ -417,40 +430,20 @@ def test_oauth_csrf_cookie_subprocess() -> None:
     assert "fastapiusersoauthcsrf" not in raw_blob, raw
 
 
-def test_oauth_router_is_wired_with_renamed_cookie_statically() -> None:
-    """Static check independent of env: confirm app.main passes the renamed
-    cookie name to BOTH fastapi-users OAuth router factories (login +
-    associate). A default call on either one silently reverts to the
-    library's `fastapiusersoauthcsrf` name."""
-    import ast
-    import pathlib
+def test_provider_router_uses_renamed_csrf_cookie_statically() -> None:
+    """Confirm the unified provider router uses our renamed CSRF cookie.
 
-    source = pathlib.Path("app/main.py").read_text()
-    tree = ast.parse(source)
+    The previous incarnation of this test verified that fastapi-users'
+    OAuth router factories were called with ``csrf_token_cookie_name=
+    "criticalbit_oauth_csrf"``. PR 2a replaced those factories with the
+    in-house ``app/routers/auth_providers.py``, which holds the cookie
+    name as a module-level constant. Catching a reversion to
+    ``fastapiusersoauthcsrf`` (or anything else) is still important — it
+    would partition existing OAuth sessions and break login UX.
+    """
+    from app.routers.auth_providers import _CSRF_COOKIE_NAME
 
-    targets = {"get_oauth_router", "get_oauth_associate_router"}
-    seen: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if (
-            isinstance(func, ast.Attribute)
-            and func.attr in targets
-            and isinstance(func.value, ast.Name)
-            and func.value.id == "fastapi_users"
-        ):
-            kwargs = {kw.arg: kw.value for kw in node.keywords}
-            csrf_name_node = kwargs.get("csrf_token_cookie_name")
-            assert csrf_name_node is not None, (
-                f"{func.attr} must pass csrf_token_cookie_name explicitly"
-            )
-            assert isinstance(csrf_name_node, ast.Constant), csrf_name_node
-            assert csrf_name_node.value == "criticalbit_oauth_csrf", csrf_name_node.value
-            seen.add(func.attr)
-
-    missing = targets - seen
-    assert not missing, f"OAuth router factories missing in app/main.py: {missing}"
+    assert _CSRF_COOKIE_NAME == "criticalbit_oauth_csrf"
 
 
 def test_cookie_transport_uses_new_access_name_statically() -> None:
