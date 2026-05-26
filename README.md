@@ -15,7 +15,8 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 ## Features
 
 - Email/password registration and login
-- Google OAuth and Steam OpenID sign-in; link either provider to an existing account
+- Pluggable identity providers (Google OAuth2, Steam OpenID 2.0) via a registry — adding a new provider (Twitch, Battle.net, YouTube, ...) is a single file in `app/providers/`
+- Bidirectional account linking: any provider can be linked to any account regardless of how the account was originally created
 - Password reset via email (Resend)
 - Email verification (auto-sent on registration); OAuth merge-by-email is refused for unverified accounts to prevent pre-registration takeover
 - RS256-signed JWT access tokens (15 min) in httpOnly cookies scoped to `.criticalbit.gg`, with a public JWKS endpoint so other services can verify them
@@ -39,12 +40,11 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 | POST | `/auth/reset-password` | Set a new password using the emailed token |
 | POST | `/auth/request-verify-token` | Send a verification email to the given address |
 | POST | `/auth/verify` | Mark the user verified using the emailed token |
-| GET | `/auth/google/authorize` | Begin Google OAuth login (redirects to Google) |
-| GET | `/auth/google/callback` | Google OAuth callback |
-| GET | `/auth/google/associate/authorize` | Link a Google account to the signed-in user |
-| GET | `/auth/google/associate/callback` | Google account-link callback |
-| GET | `/auth/steam/authorize` | Begin Steam OpenID login |
-| GET | `/auth/steam/callback` | Steam OpenID callback |
+| GET | `/auth/{provider}/authorize` | Begin login with the given provider (`google`, `steam`) |
+| GET | `/auth/{provider}/callback` | Provider login callback |
+| GET | `/auth/{provider}/associate/authorize` | Link a provider account to the signed-in user (bidirectional) |
+| GET | `/auth/{provider}/associate/callback` | Provider link callback |
+| GET | `/auth/me/connections` | List the signed-in user's linked providers |
 | GET | `/auth/me` | Get the current user's profile |
 | PATCH | `/auth/me` | Update the current user's profile |
 | DELETE | `/auth/me` | Delete the current user's account |
