@@ -97,9 +97,7 @@ class TestHasUsablePasswordLifecycle:
 
         monkeypatch.setattr(users_module, "send_reset_password_email", _capture)
 
-        forgot_resp = await client.post(
-            "/auth/forgot-password", json={"email": seed_email}
-        )
+        forgot_resp = await client.post("/auth/forgot-password", json={"email": seed_email})
         assert forgot_resp.status_code == 202, forgot_resp.text
         assert captured.get("token"), "forgot-password should have dispatched a token"
 
