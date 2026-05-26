@@ -39,6 +39,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
             user_id=str(user.id),
             email=user.email,
         )
+        # Mark the password as usable — the user chose it and presumably
+        # remembers it. Used downstream by the unlink safety rule so we
+        # don't refuse a disconnect for password-registered users.
+        await self.user_db.update(user, {"has_usable_password": True})
+
         # Dispatch the verification email. Non-blocking: a Resend outage must
         # not turn registration into a 500. The user can re-request via
         # POST /auth/request-verify-token.
@@ -47,6 +52,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, UUID]):
                 await self.request_verify(user, request)
             except Exception:
                 logger.exception("verification.dispatch_failed", user_id=str(user.id))
+
+    async def on_after_reset_password(self, user: User, request: Request | None = None):
+        """A successful password reset means the user just demonstrated
+        ownership of a password they (now) know. Flip the flag so they can
+        unlink OAuth providers without getting stranded."""
+        await self.user_db.update(user, {"has_usable_password": True})
 
     async def oauth_callback(
         self,

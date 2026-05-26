@@ -107,6 +107,7 @@ class TestAuthMeIncludesRole:
             is_active=True,
             is_superuser=False,
             is_verified=False,
+            has_usable_password=False,
         )
         app.dependency_overrides[current_active_user] = lambda: user
         try:
@@ -126,6 +127,7 @@ class TestAuthMeIncludesRole:
             is_active=True,
             is_superuser=False,
             is_verified=False,
+            has_usable_password=False,
         )
         app.dependency_overrides[current_active_user] = lambda: user
         try:

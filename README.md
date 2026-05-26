@@ -17,6 +17,7 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 - Email/password registration and login
 - Pluggable identity providers (Google OAuth2, Steam OpenID 2.0) via a registry — adding a new provider (Twitch, Battle.net, YouTube, ...) is a single file in `app/providers/`
 - Bidirectional account linking: any provider can be linked to any account regardless of how the account was originally created
+- Connection management: list and disconnect linked providers, with a safety rule that refuses to leave a user with no usable login method
 - Password reset via email (Resend)
 - Email verification (auto-sent on registration); OAuth merge-by-email is refused for unverified accounts to prevent pre-registration takeover
 - RS256-signed JWT access tokens (15 min) in httpOnly cookies scoped to `.criticalbit.gg`, with a public JWKS endpoint so other services can verify them
@@ -45,7 +46,8 @@ Shared authentication service for [criticalbit.gg](https://criticalbit.gg). Prov
 | GET | `/auth/{provider}/associate/authorize` | Link a provider account to the signed-in user (bidirectional) |
 | GET | `/auth/{provider}/associate/callback` | Provider link callback |
 | GET | `/auth/me/connections` | List the signed-in user's linked providers |
-| GET | `/auth/me` | Get the current user's profile |
+| DELETE | `/auth/me/connections/{provider}` | Unlink a provider (refused if it would leave no login method) |
+| GET | `/auth/me` | Get the current user's profile (includes `has_usable_password`) |
 | PATCH | `/auth/me` | Update the current user's profile |
 | DELETE | `/auth/me` | Delete the current user's account |
 | POST | `/auth/accept-tos` | Accept the current Terms of Service version |

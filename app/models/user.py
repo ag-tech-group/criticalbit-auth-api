@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
-from sqlalchemy import DateTime, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -21,6 +21,15 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     email until they pass through the accept-tos gate (issue #31). The
     unique index still works on nullable columns — Postgres and SQLite
     both permit multiple NULLs in a UNIQUE index by default.
+
+    `has_usable_password` tracks whether the user can actually log in with
+    a password they know — `hashed_password` alone can't tell us this:
+    fastapi-users' OAuth flow stores a random server-generated hash on
+    Google-created users (PR #40), and Steam-created users carry the
+    `!steam-oauth-no-password` sentinel. We flip this to True on
+    `/auth/register` and on successful `/auth/reset-password`. The
+    `DELETE /auth/me/connections/{provider}` endpoint uses it to refuse
+    unlinks that would leave a user with no usable login method.
     """
 
     email: Mapped[str | None] = mapped_column(
@@ -33,6 +42,9 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tos_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tos_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    has_usable_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
         "OAuthAccount", lazy="joined"

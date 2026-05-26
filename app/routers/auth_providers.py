@@ -501,6 +501,83 @@ async def list_connections(
     ]
 
 
+@router.delete("/me/connections/{provider_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def unlink_connection(
+    provider_name: str,
+    request: Request,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    """Unlink ``provider_name`` from the signed-in user.
+
+    Refuses with 409 ``unlink_would_strand_user`` when removing this link
+    would leave the user with no usable login method — i.e., no other
+    OAuth connection AND no usable password (or no email to use it with).
+    The user must either link another provider first or set/reset a
+    password (which flips ``has_usable_password`` to True).
+    """
+    result = await session.execute(
+        select(OAuthAccount).where(
+            OAuthAccount.user_id == user.id,
+            OAuthAccount.oauth_name == provider_name,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "connection_not_found",
+                "message": f"You don't have a {provider_name} account linked.",
+                "provider": provider_name,
+            },
+        )
+
+    # Count remaining OAuth connections after this hypothetical unlink.
+    remaining_oauth_result = await session.execute(
+        select(OAuthAccount).where(
+            OAuthAccount.user_id == user.id,
+            OAuthAccount.oauth_name != provider_name,
+        )
+    )
+    remaining_oauth = remaining_oauth_result.scalars().all()
+    has_password_login = bool(user.has_usable_password and user.email)
+
+    if not remaining_oauth and not has_password_login:
+        # Helpful structured response so the frontend can render guidance.
+        suggestions: list[str] = []
+        if not user.email:
+            suggestions.append("link an account that provides an email (e.g. Google) first")
+        elif not user.has_usable_password:
+            suggestions.append("set a password via /auth/forgot-password first")
+        if not remaining_oauth:
+            suggestions.append("link another provider first")
+
+        log_security_event(
+            SecurityEvent.OAUTH_MERGE_REFUSED,
+            request=request,
+            user_id=str(user.id),
+            detail=f"unlink_refused provider={provider_name} reason=would_strand",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "unlink_would_strand_user",
+                "message": (
+                    "Disconnecting this account would leave you with no way to sign "
+                    "in. " + " Or ".join(suggestions) + "."
+                ),
+                "provider": provider_name,
+                "remediation": suggestions,
+            },
+        )
+
+    await session.delete(row)
+    await session.commit()
+    logger.info("oauth.unlinked", provider=provider_name, user_id=str(user.id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # --- Router factory -------------------------------------------------------
 
 
