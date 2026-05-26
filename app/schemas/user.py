@@ -10,6 +10,12 @@ class UserRead(schemas.BaseUser[UUID]):
 
     `email` is `None` for Steam OAuth users who haven't passed through the
     accept-tos email-collection gate (issue #36).
+
+    `has_usable_password` is True iff the user can sign in with email +
+    password (registered via `/auth/register` or completed
+    `/auth/reset-password`). Used by the frontend to decide whether the
+    "Disconnect" button on a linked provider should be enabled — if it's
+    the user's only login method, disconnecting would strand them.
     """
 
     email: EmailStr | None = None  # type: ignore[assignment]
@@ -18,6 +24,7 @@ class UserRead(schemas.BaseUser[UUID]):
     avatar_url: str | None = None
     tos_accepted_at: datetime | None = None
     tos_version: str | None = None
+    has_usable_password: bool = False
 
 
 class UserCreate(schemas.BaseUserCreate):

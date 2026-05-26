@@ -52,28 +52,55 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+def _user(**overrides) -> User:
+    """Construct a User with explicit defaults for every non-PK column.
+
+    SQLAlchemy's ``default=`` and ``server_default=`` only fire at flush
+    time. Tests that pass the user through ``dependency_overrides`` never
+    hit a flush, so unset columns come back as ``None`` — which Pydantic
+    response validation then rejects (e.g. ``has_usable_password: bool``).
+    Centralizing the defaults here keeps each fixture readable and means
+    adding a new column only requires updating this one helper.
+    """
+    base: dict = {
+        "id": uuid4(),
+        "hashed_password": "fake",
+        "is_active": True,
+        "is_superuser": False,
+        "is_verified": False,
+        "role": "user",
+        "display_name": None,
+        "avatar_url": None,
+        "tos_accepted_at": None,
+        "tos_version": None,
+        "has_usable_password": False,
+    }
+    base.update(overrides)
+    return User(**base)
+
+
 @pytest.fixture
 def test_user() -> User:
     """A test user for authenticated endpoints."""
-    return User(id=uuid4(), email="test@example.com", hashed_password="fake")
+    return _user(email="test@example.com")
 
 
 @pytest.fixture
 def other_user() -> User:
     """A second test user for isolation tests."""
-    return User(id=uuid4(), email="other@example.com", hashed_password="fake")
+    return _user(email="other@example.com")
 
 
 @pytest.fixture
 def admin_user() -> User:
     """A user with the admin role."""
-    return User(id=uuid4(), email="admin@example.com", hashed_password="fake", role="admin")
+    return _user(email="admin@example.com", role="admin")
 
 
 @pytest.fixture
 def superuser() -> User:
     """A superuser (bypasses role checks)."""
-    return User(id=uuid4(), email="super@example.com", hashed_password="fake", is_superuser=True)
+    return _user(email="super@example.com", is_superuser=True)
 
 
 @pytest.fixture
