@@ -6,16 +6,17 @@ Covers:
    Steam-first user can link Google. The OAuthAccount table doesn't
    care which provider came first.
 2. Conflict detection. Linking a provider identity that's already
-   attached to another user returns 409.
+   attached to another user redirects with ``oauth_account_already_linked``.
 3. Idempotency. Linking the same provider identity to the same user
    twice doesn't error or duplicate.
 4. State validation. Wrong purpose, wrong user, or a missing CSRF
-   cookie all yield 400.
+   cookie all redirect to /profile with the error code in the URL.
 5. ``GET /auth/me/connections`` returns the linked-provider list.
 """
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
@@ -24,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
+from app.config import settings
 from app.main import app
 from app.models.oauth_account import OAuthAccount
 from app.models.user import User
@@ -36,6 +38,21 @@ from app.routers.auth_providers import (
     _PURPOSE_ASSOCIATE,
     _generate_state,
 )
+
+
+def _assert_associate_error(resp, *, expected_code: str, expected_provider: str) -> None:
+    """Errors in the associate callback now 302 to /profile with the
+    failure code in the query string so the SPA can render an alert."""
+    assert resp.status_code == 302, resp.text
+    parsed = urlparse(resp.headers["location"])
+    assert parsed.path == "/profile"
+    expected_base = urlparse(settings.frontend_url)
+    if expected_base.netloc:
+        assert parsed.netloc == expected_base.netloc
+    params = parse_qs(parsed.query)
+    assert params.get("associate_error") == [expected_code]
+    assert params.get("associate_provider") == [expected_provider]
+
 
 # --- helpers --------------------------------------------------------------
 
@@ -262,9 +279,11 @@ class TestConflictDetection:
         finally:
             _clear_user_override()
 
-        assert resp.status_code == 409, resp.text
-        body = resp.json()
-        assert body["detail"]["code"] == "oauth_account_already_linked"
+        _assert_associate_error(
+            resp,
+            expected_code="oauth_account_already_linked",
+            expected_provider="steam",
+        )
 
         # No new row was created; the Steam ID remains tied to the original user.
         rows = (
@@ -333,7 +352,7 @@ class TestAssociateIdempotency:
 
 
 class TestStateValidation:
-    async def test_missing_state_returns_400(
+    async def test_missing_state_redirects_to_profile_with_error(
         self,
         client: AsyncClient,
         linked_user: User,
@@ -345,10 +364,11 @@ class TestStateValidation:
             resp = await client.get("/auth/steam/associate/callback", follow_redirects=False)
         finally:
             _clear_user_override()
-        assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"]["code"] == "oauth_state_missing"
+        _assert_associate_error(
+            resp, expected_code="oauth_state_missing", expected_provider="steam"
+        )
 
-    async def test_purpose_mismatch_returns_400(
+    async def test_purpose_mismatch_redirects_to_profile_with_error(
         self,
         client: AsyncClient,
         linked_user: User,
@@ -367,10 +387,11 @@ class TestStateValidation:
             )
         finally:
             _clear_user_override()
-        assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"]["code"] == "oauth_state_wrong_purpose"
+        _assert_associate_error(
+            resp, expected_code="oauth_state_wrong_purpose", expected_provider="steam"
+        )
 
-    async def test_user_mismatch_returns_400(
+    async def test_user_mismatch_redirects_to_profile_with_error(
         self,
         client: AsyncClient,
         linked_user: User,
@@ -392,10 +413,11 @@ class TestStateValidation:
             )
         finally:
             _clear_user_override()
-        assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"]["code"] == "oauth_state_user_mismatch"
+        _assert_associate_error(
+            resp, expected_code="oauth_state_user_mismatch", expected_provider="steam"
+        )
 
-    async def test_missing_csrf_cookie_returns_400(
+    async def test_missing_csrf_cookie_redirects_to_profile_with_error(
         self,
         client: AsyncClient,
         linked_user: User,
@@ -413,8 +435,9 @@ class TestStateValidation:
             )
         finally:
             _clear_user_override()
-        assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"]["code"] == "oauth_csrf_mismatch"
+        _assert_associate_error(
+            resp, expected_code="oauth_csrf_mismatch", expected_provider="steam"
+        )
 
 
 # --- /auth/me/connections -------------------------------------------------

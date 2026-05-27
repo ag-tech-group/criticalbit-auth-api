@@ -88,6 +88,28 @@ def _frontend_complete_url(provider_name: str, *, associated: bool = False) -> s
     return f"{settings.frontend_url}/callback/{provider_name}-{suffix}"
 
 
+def _frontend_associate_error_url(provider_name: str, code: str) -> str:
+    """Where to drop the user when the associate flow fails.
+
+    The browser lands on the profile page (where they started), with the
+    error code in the query string. Otherwise FastAPI would render raw
+    JSON to the user in prod, where Steam/Google redirect straight to
+    this API rather than through the SPA's callback page.
+    """
+    return (
+        f"{settings.frontend_url}/profile?associate_error={code}&associate_provider={provider_name}"
+    )
+
+
+def _oauth_error_code(detail: Any) -> str | None:
+    """Pull the ``code`` string out of an HTTPException's structured detail."""
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if isinstance(code, str):
+            return code
+    return None
+
+
 # --- State (CSRF + purpose binding) ---------------------------------------
 
 
@@ -390,6 +412,34 @@ async def associate_callback(
     request: Request,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
+):
+    # In prod the provider redirects the browser directly here, so an
+    # HTTPException would render as raw JSON to the user. Convert known
+    # error codes into a 302 back to /profile with the code in the query
+    # string — the SPA renders a proper alert from there.
+    try:
+        return await _associate_callback_impl(
+            provider_name=provider_name,
+            request=request,
+            user=user,
+            session=session,
+        )
+    except HTTPException as exc:
+        code = _oauth_error_code(exc.detail)
+        if code is None:
+            raise
+        return RedirectResponse(
+            url=_frontend_associate_error_url(provider_name, code),
+            status_code=302,
+        )
+
+
+async def _associate_callback_impl(
+    *,
+    provider_name: str,
+    request: Request,
+    user: User,
+    session: AsyncSession,
 ):
     provider = _resolve_provider(provider_name)
     state = request.query_params.get("state")
