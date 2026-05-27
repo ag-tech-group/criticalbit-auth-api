@@ -243,19 +243,44 @@ _AUTH_RATE_LIMITS: dict[str, RateLimitItem] = {
 
 @app.middleware("http")
 async def rate_limit_auth(request: Request, call_next) -> Response:
-    """Apply rate limits to auth and enumeration-adjacent endpoints."""
+    """Apply rate limits to auth and enumeration-adjacent endpoints.
+
+    On rejection the response includes both a ``Retry-After`` header
+    (per RFC 7231 §7.1.3) and a structured body so the frontend can
+    render a precise countdown rather than a generic "try again later".
+    """
     rate_limit = _AUTH_RATE_LIMITS.get(f"{request.method} {request.url.path}")
     if rate_limit:
         key = get_remote_address(request)
         if not limiter._limiter.hit(rate_limit, key):
+            # window_stats: (reset_unix_ts, remaining). After a refused
+            # hit, ``remaining`` is 0 and ``reset_unix_ts`` is when the
+            # oldest in-window request rolls off — i.e., the earliest
+            # moment a fresh hit will succeed. Clamp to >=1 so the
+            # frontend never gets a zero/negative countdown.
+            reset_ts, _ = limiter._limiter.get_window_stats(rate_limit, key)
+            retry_after = max(1, int(reset_ts - time.time()))
+
             log_security_event(
                 SecurityEvent.RATE_LIMIT_HIT,
                 request=request,
-                detail=f"path={request.url.path}",
+                detail=f"path={request.url.path} retry_after={retry_after}",
             )
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Rate limit exceeded"},
+                headers={"Retry-After": str(retry_after)},
+                content={
+                    "detail": {
+                        "code": "rate_limited",
+                        "message": (
+                            f"Too many requests on {request.method} "
+                            f"{request.url.path}. Try again in {retry_after} "
+                            f"second{'s' if retry_after != 1 else ''}."
+                        ),
+                        "limit": str(rate_limit),
+                        "retry_after": retry_after,
+                    }
+                },
             )
     return await call_next(request)
 
