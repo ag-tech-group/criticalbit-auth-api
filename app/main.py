@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 
@@ -54,6 +55,49 @@ app.add_middleware(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def _cors_response_headers(origin: str | None) -> dict[str, str]:
+    """Compute the CORS headers we'd attach to a normal response.
+
+    ``CORSMiddleware`` adds these automatically on the response path —
+    but unhandled exceptions are caught by Starlette's
+    ``ServerErrorMiddleware`` (hardcoded outside of all user middleware),
+    so the 500 it emits travels via the outer ASGI ``send`` and bypasses
+    ``CORSMiddleware`` entirely. The result: a browser sees a server
+    error as "No 'Access-Control-Allow-Origin' header" instead of the
+    actual failure, and the real bug stays hidden until someone reads
+    the server logs. Re-deriving the same headers here keeps the
+    diagnostic information accurate when something goes wrong.
+    """
+    if not origin:
+        return {}
+    allowed = origin in settings.cors_origin_list
+    if not allowed and settings.cors_origin_regex:
+        allowed = bool(re.fullmatch(settings.cors_origin_regex, origin))
+    if not allowed:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        exc_type=type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+        headers=_cors_response_headers(request.headers.get("origin")),
+    )
+
 
 # --- Auth routes ---
 # Custom refresh/logout routes (included before FastAPI-Users so /auth/jwt/logout is shadowed)

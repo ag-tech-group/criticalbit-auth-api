@@ -46,6 +46,18 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         Boolean, default=False, server_default="false", nullable=False
     )
 
+    # ``cascade="all, delete"`` makes the ORM emit DELETEs for the linked
+    # oauth_account rows when the user is deleted. Without it, SQLAlchemy
+    # defaults to "save-update, merge" and tries to disassociate the
+    # children by issuing ``UPDATE oauth_account SET user_id = NULL``
+    # first — which the NOT NULL constraint on ``oauth_account.user_id``
+    # rejects, 500ing ``DELETE /auth/me``. We deliberately don't add
+    # ``passive_deletes=True`` here: the optimization would skip the ORM
+    # DELETEs and rely on the DB's ``ON DELETE CASCADE`` instead, which
+    # is true in prod (Postgres) but false in the SQLite test harness
+    # without ``PRAGMA foreign_keys=ON``, masking regressions.
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
-        "OAuthAccount", lazy="joined"
+        "OAuthAccount",
+        lazy="joined",
+        cascade="all, delete",
     )
