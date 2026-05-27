@@ -133,31 +133,40 @@ async def test_match_is_case_insensitive(auth_client: AsyncClient, seeded: list[
     assert any(row["display_name"] == "Alice" for row in body)
 
 
-# --- response shape: never includes email ----------------------------------
+# --- response shape: includes email (issue #42) ----------------------------
 
 
-async def test_email_is_never_in_response(auth_client: AsyncClient, seeded: list[User]) -> None:
+async def test_email_is_included_for_users_who_have_one(
+    auth_client: AsyncClient, seeded: list[User]
+) -> None:
+    """Issue #42: email is now returned so consumer pickers can fall back
+    to a readable label (``display_name ?? email``) instead of rendering
+    raw UUIDs for users without a custom display_name."""
     resp = await auth_client.get("/users/search?q=alice")
     body = resp.json()
     assert resp.status_code == 200
     assert body, "expected matches"
     for row in body:
-        assert "email" not in row, f"email leaked into response: {row}"
-        assert set(row.keys()) <= {"id", "display_name", "avatar_url"}
+        assert set(row.keys()) == {"id", "display_name", "avatar_url", "email"}
+    # Alice has both fields populated; confirm the email actually rides
+    # through.
+    alice = next(r for r in body if r["display_name"] == "Alice")
+    assert alice["email"] == "alice@example.com"
 
 
-async def test_null_email_user_is_matchable_via_display_name(
+async def test_null_email_user_is_matchable_via_display_name_and_email_is_null(
     auth_client: AsyncClient, seeded: list[User]
 ) -> None:
-    # Post-#36, Steam users have email=NULL. Search's email-substring
-    # branch can't match them — but display_name still can.
+    """Steam-OAuth users (no email until accept-tos gate) still match via
+    display_name. Their row in the response carries ``email: null`` so
+    consumers can detect the no-email state explicitly rather than
+    treating a missing key as a failure."""
     resp = await auth_client.get("/users/search?q=GabeStreams")
     body = resp.json()
     assert resp.status_code == 200
-    assert any(row["display_name"] == "GabeStreams" for row in body)
-    # Email is never in the response payload regardless.
-    for row in body:
-        assert "email" not in row
+    gabe = next((row for row in body if row["display_name"] == "GabeStreams"), None)
+    assert gabe is not None
+    assert gabe["email"] is None
 
 
 # --- limit -----------------------------------------------------------------

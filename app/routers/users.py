@@ -1,7 +1,8 @@
 """User lookup endpoints.
 
 Two surfaces with intentionally different shapes:
-- ``/users/search`` — substring picker for type-ahead UI; omits email.
+- ``/users/search`` — substring picker for type-ahead UI; includes email as
+  a readable fallback when ``display_name`` is null (issue #42).
 - ``/users/lookup`` — bulk by-id resolver for privileged consumers; includes
   email. Trusts the caller to enforce authority over the looked-up users.
 """
@@ -68,8 +69,9 @@ async def search_users(
     """Type-ahead user picker for consumer apps.
 
     Matches `q` (case-insensitive substring) against display_name AND email.
-    Email is accepted as an input match-key for admin convenience but is
-    never returned — that's why the response schema has no email field.
+    Both are included in the response so consumer pickers can render
+    ``display_name ?? email`` and never fall back to raw UUID for users
+    who haven't customized their profile.
     """
     q = q.strip()
     if not q:
@@ -107,6 +109,7 @@ async def search_users(
             id=user.id,
             display_name=user.display_name,
             avatar_url=user.avatar_url,
+            email=user.email,
         )
         for user in users
     ]
