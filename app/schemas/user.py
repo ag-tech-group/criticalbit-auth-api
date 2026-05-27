@@ -42,13 +42,27 @@ class UserUpdate(schemas.BaseUserUpdate):
 class UserSearchResult(BaseModel):
     """Public projection returned by /users/search.
 
-    Deliberately omits email — the endpoint accepts email as a match-key but
-    never surfaces it. PII stays server-side.
+    Includes ``email`` so consumer-side type-ahead pickers have a readable
+    label fallback for users with no ``display_name`` set (especially
+    Steam-OAuth users who haven't customized their profile). Without
+    this, those rows render as the raw UUID, which makes admin pickers
+    in downstream apps functionally unusable for that population.
+
+    ``email`` is ``None`` for Steam-OAuth users who haven't yet passed
+    through the accept-tos email-collection gate — same nullability as
+    ``UserRead``.
+
+    The endpoint is authenticated, and the search query is matched
+    against both ``display_name`` and ``email``, so returning ``email``
+    doesn't expand the caller's existing knowledge surface — they
+    already had to know (or guess) the email to find the user via
+    email-match.
     """
 
     id: UUID
     display_name: str | None = None
     avatar_url: str | None = None
+    email: str | None = None
 
 
 class UserLookupResult(BaseModel):
