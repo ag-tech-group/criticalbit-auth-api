@@ -14,6 +14,11 @@ env:
   SERVICE_NAME: criticalbit-auth-api
   MIGRATE_JOB_NAME: criticalbit-auth-api-migrate
   IMAGE: us-east1-docker.pkg.dev/criticalbit-production/criticalbit-auth-api/criticalbit-auth-api
+  # Cap horizontal scale so DB connections stay bounded:
+  # (DB_POOL_SIZE + DB_MAX_OVERFLOW) × MAX_INSTANCES + migrate-job + headroom
+  # must stay under Cloud SQL max_connections. 10 × 10/instance = ~100; raise
+  # alongside the Cloud SQL tier. See app/.env.example for the formula.
+  MAX_INSTANCES: 10
 
 jobs:
   ci:
@@ -73,5 +78,30 @@ jobs:
             --image "$IMAGE_TAG" \
             --region "${{ env.GCP_REGION }}" \
             --project "${{ env.GCP_PROJECT }}" \
+            --max-instances "${{ env.MAX_INSTANCES }}" \
             --update-secrets=SENTRY_DSN=auth-sentry-dsn:latest \
             --update-env-vars="SENTRY_RELEASE=$COMMIT_SHA"
+
+      # Cloud Run never auto-prunes old revisions, and a revision pinned by
+      # min-instances keeps an instance + its DB connection pool alive even at
+      # 0% traffic — so accumulation can silently saturate Cloud SQL's
+      # max_connections (the 2026-06-01 morning outage; aoe2-live-standings-api#171).
+      # Keep the 2 newest (current + one rollback) and delete the rest.
+      # Best-effort: never fail the deploy that just succeeded.
+      - name: Prune stale Cloud Run revisions
+        continue-on-error: true
+        run: |
+          set +e
+          stale=$(gcloud run revisions list \
+            --service "${{ env.SERVICE_NAME }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --project "${{ env.GCP_PROJECT }}" \
+            --sort-by '~metadata.creationTimestamp' \
+            --format 'value(metadata.name)' | tail -n +3)
+          for rev in $stale; do
+            echo "Deleting stale revision: $rev"
+            gcloud run revisions delete "$rev" \
+              --region "${{ env.GCP_REGION }}" \
+              --project "${{ env.GCP_PROJECT }}" \
+              --quiet || true
+          done
