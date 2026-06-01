@@ -11,7 +11,6 @@ from limits import RateLimitItem, parse
 from pydantic import BaseModel, EmailStr
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import auth_backend, current_active_user, fastapi_users
@@ -21,6 +20,7 @@ from app.auth.users import UserManager, get_user_manager
 from app.config import settings
 from app.database import get_async_session
 from app.features import router as features_router
+from app.limiting import client_ip
 from app.logging import setup_logging
 from app.models.user import User
 from app.routers import admin_router, user_consent_router, users_router
@@ -51,8 +51,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "sentry-trace", "baggage"],
 )
 
-# Rate limiting
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiting. ``client_ip`` keys on the real client IP behind Cloudflare
+# (CF-Connecting-IP, validated against CF's edge ranges) rather than the
+# shared edge peer — see app/limiting.py and issue #47.
+limiter = Limiter(key_func=client_ip)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -295,7 +297,7 @@ async def rate_limit_auth(request: Request, call_next) -> Response:
     """
     rate_limit = _AUTH_RATE_LIMITS.get(f"{request.method} {request.url.path}")
     if rate_limit:
-        key = get_remote_address(request)
+        key = client_ip(request)
         if not limiter._limiter.hit(rate_limit, key):
             # window_stats: (reset_unix_ts, remaining). After a refused
             # hit, ``remaining`` is 0 and ``reset_unix_ts`` is when the
