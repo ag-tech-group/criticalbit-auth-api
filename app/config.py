@@ -14,6 +14,18 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/criticalbit_auth"
 
+    # Database connection pool (per Cloud Run instance). On Cloud Run we scale
+    # horizontally, so total DB connections ≈ (pool_size + max_overflow) ×
+    # running instances and must stay under Cloud SQL's max_connections with
+    # headroom for the Alembic migrate job. Conservative defaults; tune per
+    # tier via env. See .env.example for the sizing formula. Ignored for
+    # SQLite (dev/test), whose pool doesn't take these args.
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+    db_pool_pre_ping: bool = True
+
     # Auth
     secret_key: str = "change-me-in-production"
 
