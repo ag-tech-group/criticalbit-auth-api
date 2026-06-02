@@ -16,9 +16,10 @@ env:
   IMAGE: us-east1-docker.pkg.dev/criticalbit-production/criticalbit-auth-api/criticalbit-auth-api
   # Cap horizontal scale so DB connections stay bounded:
   # (DB_POOL_SIZE + DB_MAX_OVERFLOW) × MAX_INSTANCES + migrate-job + headroom
-  # must stay under Cloud SQL max_connections. 10 × 10/instance = ~100; raise
-  # alongside the Cloud SQL tier. See app/.env.example for the formula.
-  MAX_INSTANCES: 10
+  # must stay under Cloud SQL max_connections. At 10/instance, 4 instances =
+  # ~40 peak — under db-g1-small's ~50 default (criticalbit-db). Raise this
+  # alongside the tier, re-confirming max_connections first. See .env.example.
+  MAX_INSTANCES: 4
 
 jobs:
   ci:
