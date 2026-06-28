@@ -135,8 +135,13 @@ mount_providers(app)
 
 
 @app.get("/auth/jwks", tags=["auth"])
-async def jwks():
+async def jwks(response: Response):
     """Public JWKS endpoint. Tool backends use this to verify JWTs."""
+    # Public signing keys: safe and beneficial to cache. Opt in explicitly so
+    # the default `no-store` doesn't force verifiers to refetch keys on every
+    # token validation; a verifier re-fetches on an unknown `kid` when keys
+    # rotate.
+    response.headers["Cache-Control"] = "public, max-age=3600"
     return get_jwks()
 
 
@@ -340,6 +345,22 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
+
+
+@app.middleware("http")
+async def cache_control_middleware(request: Request, call_next) -> Response:
+    """Default every response to ``no-store``; caching is strictly opt-in.
+
+    This is an auth service — almost everything it returns is per-user or
+    token-bearing, and a blanket cache on GETs would let shared/CDN caches and
+    browsers store sensitive responses. So the safe default is ``no-store``; an
+    endpoint that serves genuinely public data (e.g. the JWKS) opts in by
+    setting its own ``Cache-Control``, which this middleware leaves intact.
+    """
+    response = await call_next(request)
+    if "cache-control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 

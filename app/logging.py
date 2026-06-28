@@ -51,6 +51,11 @@ def setup_logging() -> None:
 
     # Quiet noisy third-party loggers
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # httpx emits one INFO line per request; the OAuth providers (Google/Steam)
+    # are called per login, so at volume these dominate both Cloud Logging and
+    # the metered Sentry Logs stream. Keep warnings and above only.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

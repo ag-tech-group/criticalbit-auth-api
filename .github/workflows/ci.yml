@@ -24,3 +24,33 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync
       - run: uv run pytest
+
+  migrate:
+    # The test suite builds its schema on SQLite and never runs Alembic, so
+    # migrations are only exercised against real Postgres here: apply to head,
+    # then a full downgrade -> upgrade round-trip so an irreversible migration
+    # can't slip through. Validated locally against postgres:16.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: criticalbit_auth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/criticalbit_auth
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync
+      - run: uv run alembic upgrade head
+      - run: uv run alembic downgrade base
+      - run: uv run alembic upgrade head
