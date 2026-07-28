@@ -40,7 +40,7 @@ _engine = create_async_engine(
 _session_maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def _override_session() -> AsyncGenerator[AsyncSession, None]:
+async def _override_session() -> AsyncGenerator[AsyncSession]:
     async with _session_maker() as session:
         yield session
 
@@ -74,7 +74,7 @@ def _set_cookies_by_name(headers: list[str]) -> dict[str, dict[str, str]]:
 
 
 @pytest.fixture
-async def shared_db(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None, None]:
+async def shared_db(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None]:
     """Create tables on the shared in-memory DB and wire overrides/patches.
 
     Also resets the process-wide slowapi rate limiter state so per-test
@@ -110,7 +110,7 @@ async def shared_db(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[None, Non
 
 
 @pytest.fixture
-async def api(shared_db: None) -> AsyncGenerator[AsyncClient, None]:
+async def api(shared_db: None) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -367,16 +367,10 @@ def test_oauth_csrf_cookie_subprocess() -> None:
 
         from app.main import app  # noqa: E402
 
-        # The unified provider router uses a dynamic path
-        # (/auth/{provider_name}/authorize). Match the templated form OR a
-        # statically-mounted equivalent so this test survives both wirings.
-        has_authorize = any(
-            getattr(r, "path", "") in (
-                "/auth/google/authorize",
-                "/auth/{provider_name}/authorize",
-            )
-            for r in app.routes
-        )
+        # Registration is proven behaviorally (the request below returning
+        # 200 rather than 404). FastAPI >=0.137 materializes included
+        # routers' routes lazily, so scanning `app.routes` at import time
+        # no longer reflects what is actually registered and served.
 
         async def _run():
             async with AsyncClient(
@@ -388,7 +382,6 @@ def test_oauth_csrf_cookie_subprocess() -> None:
 
         status, headers = asyncio.run(_run())
         print("OAUTH_SUBPROC_RESULT", json.dumps({
-            "has_authorize": has_authorize,
             "status": status,
             "set_cookie_headers": headers,
         }))
@@ -416,7 +409,8 @@ def test_oauth_csrf_cookie_subprocess() -> None:
 
     print("OAUTH subprocess result:", payload)
 
-    assert payload["has_authorize"], "authorize route not registered despite env vars"
+    # 200 (not 404) is the registration proof — see the note in the script
+    # about FastAPI's lazy route materialization.
     assert payload["status"] == 200, payload
     raw = payload["set_cookie_headers"]
     cookies = _set_cookies_by_name(raw)
