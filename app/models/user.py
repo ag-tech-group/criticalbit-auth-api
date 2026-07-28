@@ -56,7 +56,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     # DELETEs and rely on the DB's ``ON DELETE CASCADE`` instead, which
     # is true in prod (Postgres) but false in the SQLite test harness
     # without ``PRAGMA foreign_keys=ON``, masking regressions.
-    oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
+    oauth_accounts: Mapped[list[OAuthAccount]] = relationship(  # noqa: F821
         "OAuthAccount",
         lazy="joined",
         cascade="all, delete",

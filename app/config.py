@@ -106,7 +106,7 @@ class Settings(BaseSettings):
         return r"https://([a-z0-9-]+\.)?criticalbit\.gg"
 
     @model_validator(mode="after")
-    def validate_production_settings(self) -> "Settings":
+    def validate_production_settings(self) -> Settings:
         if not self.is_development:
             weak_secrets = {"change-me-in-production", "dev-secret-key-change-in-production", ""}
             if self.secret_key in weak_secrets or len(self.secret_key) < 32:
